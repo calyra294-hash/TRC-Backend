@@ -24,16 +24,10 @@ Servidor REST desarrollado en Node.js y Express para la gestión de flota y rese
 
    Crea un archivo `.env` en la raíz del proyecto basándote en el ejemplo:
 
-   ```env
-   PORT=3000
-   SUPABASE_URL=https://tu-proyecto.supabase.co
-   SUPABASE_ANON_KEY=tu-clave-anonima-de-supabase
-   ```
-
 3. **Ejecutar en modo desarrollo:**
 
    ```bash
-   pnpm run dev
+   pnpm start
    ```
 
 ---
