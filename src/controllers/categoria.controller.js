@@ -1,4 +1,4 @@
-import db from "../firebase.js";
+import db from "../config/firebase.js";
 
 export const registrarCategoria = async (req, res) => {
   try {
