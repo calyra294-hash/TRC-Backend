@@ -8,7 +8,7 @@ Servidor REST desarrollado en Node.js y Express para la gestión de flota y rese
 
 - **Node.js**: v18 o superior.
 - **pnpm**: Administrador de paquetes recomendado.
-- **VS Code**: Editor sugerido con entorno WSL2 / Linux.
+- **VS Code**: Editor sugerido.
 
 ---
 
