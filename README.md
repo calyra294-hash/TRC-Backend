@@ -78,10 +78,3 @@ src/
 * **Routes (`routes/`):** Únicamente definen los endpoints y delegan el flujo de la petición al controlador correspondiente.
 * **Controllers (`controllers/`):** Extraen los parámetros de la solicitud (`req`), llaman a los servicios necesarios y devuelven la respuesta HTTP formal (`res`).
 * **Services (`services/`):** Contienen la lógica de negocio pura, interactúan con las bases de datos (Supabase/Firebase) y formatean/mapean los datos antes de entregarlos al controlador.
-
-
----
-
-## 📌 Convención de Commits
-
-Este proyecto sigue la norma **Conventional Commits** para mantener un historial claro y auditable (`feat:`, `fix:`, `docs:`, `refactor:`, etc.).
