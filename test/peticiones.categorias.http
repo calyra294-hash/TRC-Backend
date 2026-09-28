@@ -1,0 +1,6 @@
+### Variables de entorno
+@host = http://localhost:3000
+
+### Obtener todas las categorias (Consulta + JOIN + Mapper)
+GET {{host}}/api/categorias
+Content-Type: application/json

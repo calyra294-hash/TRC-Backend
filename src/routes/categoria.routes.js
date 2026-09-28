@@ -1,8 +1,8 @@
-import express from "express";
-import { registrarCategoria } from "../controllers/categoria.controller.js";
+import { Router } from 'express';
+import { getCategorias } from '../controllers/categoria.controller.js';
 
-const router = express.Router();
+const router = Router();
 
-router.post("/categoria", registrarCategoria);
+router.get('/', getCategorias);
 
 export default router;

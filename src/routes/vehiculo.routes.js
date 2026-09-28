@@ -3,6 +3,6 @@ import { getVehiculos } from '../controllers/vehiculo.controller.js';
 
 const router = Router();
 
-router.get('/vehiculos', getVehiculos);
+router.get('/', getVehiculos);
 
 export default router;
