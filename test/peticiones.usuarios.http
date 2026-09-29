@@ -1,0 +1,61 @@
+### Variables
+@host = http://localhost:3000
+
+### 1. Obtener todos los usuarios
+GET {{host}}/api/usuarios
+Content-Type: application/json
+
+###
+
+### 2. Obtener usuario por ID
+# Reemplaza EL_ID_AQUI por un ID real existente en Firestore
+GET {{host}}/api/usuarios/ec4YfLTHiCEzdGIbGywZ
+Content-Type: application/json
+
+###
+
+### 3. Registrar un nuevo usuario (con ID generado por Firestore)
+POST {{host}}/api/usuarios
+Content-Type: application/json
+
+{
+  "nombre_completo": "Maryina Lazo",
+  "rol": "Cliente",
+  "correo": "maryina.lazo@example.com",
+  "password_hash": "hash_seguro_123",
+  "direccion": "Av. Principal 123, Ciudad"
+}
+
+###
+
+### 4. Registrar un usuario (con ID personalizado)
+POST {{host}}/api/usuarios
+Content-Type: application/json
+
+{
+  "_id": "usr_custom_100",
+  "nombre_completo": "Ana López",
+  "rol": "Administrador",
+  "correo": "ana.lopez@example.com",
+  "password_hash": "hash_super_seguro_456",
+  "direccion": "Calle Central 456"
+}
+
+###
+
+### 5. Actualizar un usuario existente
+# Reemplaza EL_ID_AQUI por el ID del usuario que deseas editar
+PUT {{host}}/api/usuarios/ymA7jrIbC3LNRMYWiGny
+Content-Type: application/json
+
+{
+  "nombre_completo": "Carlos Mendoza Actualizado",
+  "direccion": "Nueva Dirección 789"
+}
+
+###
+
+### 6. Eliminar un usuario
+# Reemplaza EL_ID_AQUI por el ID del usuario a eliminar
+DELETE {{host}}/api/usuarios/ymA7jrIbC3LNRMYWiGny
+Content-Type: application/json
