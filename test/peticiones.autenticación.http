@@ -1,0 +1,15 @@
+### Variables de entorno locales
+@baseUrl = http://localhost:3000/api
+
+### 1. Probar Inicio de Sesión Exitoso contra tu API
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "yaleskasevi@gmail.com",
+  "password": "123456"
+}
+
+### 2. Probar Cierre de Sesión
+POST {{baseUrl}}/auth/logout
+Content-Type: application/json
