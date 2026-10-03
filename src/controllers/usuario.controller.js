@@ -1,128 +1,126 @@
-import {
-  crearUsuarioService,
-  obtenerUsuariosService,
-  obtenerUsuarioPorIdService,
-  actualizarUsuarioService,
-  eliminarUsuarioService,
-} from "../services/usuarios.service.js";
+// src/controllers/usuarios.controller.js
+import * as usuariosService from '../services/usuarios.service.js';
 
-// 1. REGISTRAR USUARIO
-export const registrarUsuario = async (req, res) => {
-  try {
-    const { _id, nombre_completo, rol, correo, password_hash, direccion } = req.body || {};
-
-    if (!nombre_completo || !rol || !correo || !password_hash || !direccion) {
-      return res.status(400).json({
-        mensaje: "Todos los campos son obligatorios: nombre_completo, rol, correo, password_hash y direccion.",
-      });
-    }
-
-    const idFinal = await crearUsuarioService({
-      _id,
-      nombre_completo,
-      rol,
-      correo,
-      password_hash,
-      direccion,
-    });
-
-    res.status(201).json({
-      mensaje: `¡Usuario registrado con éxito! ID: ${idFinal}`,
-      _id: idFinal,
-      nombre_completo,
-      rol,
-      correo,
-      direccion,
-    });
-  } catch (error) {
-    console.error("Error al registrar el usuario:", error);
-    res.status(500).json({
-      mensaje: "Error al registrar el usuario.",
-      error: error.message,
-    });
-  }
-};
-
-// 2. OBTENER TODOS LOS USUARIOS
+// 1. OBTENER TODOS LOS USUARIOS
 export const obtenerUsuarios = async (req, res) => {
   try {
-    const usuarios = await obtenerUsuariosService();
-    res.status(200).json(usuarios);
+    const usuarios = await usuariosService.obtenerUsuariosService();
+    return res.status(200).json({
+      success: true,
+      data: usuarios,
+    });
   } catch (error) {
-    console.error("Error al obtener los usuarios:", error);
-    res.status(500).json({
-      mensaje: "Error al obtener la lista de usuarios.",
+    console.error('Error en obtenerUsuarios controller:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error al obtener la lista de usuarios.',
       error: error.message,
     });
   }
 };
 
-// 3. OBTENER UN USUARIO POR ID
+// 2. OBTENER UN USUARIO POR ID
 export const obtenerUsuarioPorId = async (req, res) => {
   try {
     const { id } = req.params;
-    const usuario = await obtenerUsuarioPorIdService(id);
+    const usuario = await usuariosService.obtenerUsuarioPorIdService(id);
 
     if (!usuario) {
-      return res.status(404).json({ mensaje: `No se encontró el usuario con ID: ${id}` });
+      return res.status(404).json({
+        success: false,
+        message: `No se encontró el usuario con ID: ${id}`,
+      });
     }
 
-    res.status(200).json(usuario);
+    return res.status(200).json({
+      success: true,
+      data: usuario,
+    });
   } catch (error) {
-    console.error("Error al obtener el usuario:", error);
-    res.status(500).json({
-      mensaje: "Error al obtener el usuario.",
+    console.error('Error en obtenerUsuarioPorId controller:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error al obtener el usuario.',
       error: error.message,
     });
   }
 };
 
-// 4. EDITAR USUARIO
+// 3. EDITAR USUARIO (Soporte para campos extendidos, documentos y estado de aprobación)
 export const editarUsuario = async (req, res) => {
   try {
     const { id } = req.params;
-    const { nombre_completo, rol, correo, password_hash, direccion } = req.body || {};
-
-    const usuarioActualizado = await actualizarUsuarioService(id, {
-      nombre_completo,
-      rol,
-      correo,
-      password_hash,
+    const {
+      nombre1,
+      nombre2,
+      apellido1,
+      apellido2,
+      cedula,
+      telefono,
       direccion,
+      licencia,
+      tipo_licencia,
+      estado_aprobacion,
+      url_cedula,
+      url_licencia,
+      url_avatar,
+      fecha_nacimiento,
+    } = req.body || {};
+
+    const usuarioActualizado = await usuariosService.actualizarUsuarioService(id, {
+      nombre1,
+      nombre2,
+      apellido1,
+      apellido2,
+      cedula,
+      telefono,
+      direccion,
+      licencia,
+      tipo_licencia,
+      estado_aprobacion,
+      url_cedula,
+      url_licencia,
+      url_avatar,
+      fecha_nacimiento,
     });
 
     if (!usuarioActualizado) {
-      return res.status(404).json({ mensaje: `No se encontró el usuario con ID: ${id}` });
+      return res.status(404).json({
+        success: false,
+        message: `No se encontró el usuario con ID: ${id}`,
+      });
     }
 
-    res.status(200).json({
-      mensaje: "Usuario actualizado correctamente.",
-      usuario: usuarioActualizado,
+    return res.status(200).json({
+      success: true,
+      message: 'Usuario actualizado correctamente.',
+      data: usuarioActualizado,
     });
   } catch (error) {
-    console.error("Error al actualizar el usuario:", error);
-    res.status(500).json({
-      mensaje: "Error al actualizar el usuario.",
+    console.error('Error en editarUsuario controller:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error al actualizar el usuario.',
       error: error.message,
     });
   }
 };
 
-// 5. ELIMINAR USUARIO
+// 4. ELIMINAR USUARIO
 export const eliminarUsuario = async (req, res) => {
   try {
     const { id } = req.params;
-    const eliminado = await eliminarUsuarioService(id);
+    await usuariosService.eliminarUsuarioService(id);
 
-    if (!eliminado) {
-      return res.status(404).json({ mensaje: `No se encontró el usuario con ID: ${id}` });
-    }
-
-    res.status(200).json({ mensaje: `Usuario con ID ${id} eliminado con éxito.` });
+    return res.status(200).json({
+      success: true,
+      message: `Usuario con ID ${id} eliminado con éxito.`,
+    });
   } catch (error) {
-    console.error("Error al eliminar el usuario:", error);
-    res.status(500).json({
-      mensaje: "Error al eliminar el usuario.",
+    console.error('Error en eliminarUsuario controller:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error al eliminar el usuario.',
       error: error.message,
     });
   }
