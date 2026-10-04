@@ -125,3 +125,24 @@ export const eliminarUsuario = async (req, res) => {
     });
   }
 };
+
+// 5. REGISTRAR USUARIO
+export const registrarUsuario = async (req, res) => {
+  try {
+    const usuario = await usuariosService.registrarUsuarioService(req.body);
+
+    return res.status(201).json({
+      success: true,
+      message: 'Usuario registrado correctamente.',
+      data: usuario,
+    });
+  } catch (error) {
+    console.error('Error en registrarUsuario controller:', error);
+
+    return res.status(500).json({
+      success: false,
+      message: 'Error al registrar el usuario.',
+      error: error.message,
+    });
+  }
+};

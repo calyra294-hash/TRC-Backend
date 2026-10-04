@@ -73,3 +73,21 @@ export const eliminarUsuarioService = async (id) => {
 
   return true;
 };
+
+// 5. REGISTRAR USUARIO
+export const registrarUsuarioService = async (datos) => {
+  const { data, error } = await supabase
+    .from(TABLA)
+    .insert([datos])
+    .select()
+    .single();
+
+  if (error) {
+    throw new Error(`Error al registrar usuario: ${error.message}`);
+  }
+
+  const copia = { ...data };
+  delete copia.contrasena;
+
+  return copia;
+};
