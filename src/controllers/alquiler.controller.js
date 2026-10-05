@@ -1,13 +1,15 @@
 import { obtenerAlquileresService } from "../services/alquiler.service.js";
 
 // OBTENER TODOS LOS ALQUILERES
-
 export const obtenerAlquileres = async (req, res) => {
     try {
-        const alquileres = await obtenerAlquileresService();
+        const { id_usuario } = req.query;
+
+        const alquileres = await obtenerAlquileresService(
+            id_usuario || null
+        );
 
         res.status(200).json(alquileres);
-        
     } catch (error) {
         console.error("Error al obtener los alquileres:", error);
 

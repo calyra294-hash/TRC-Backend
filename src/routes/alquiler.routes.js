@@ -1,4 +1,5 @@
 import { Router } from "express";
+
 import { obtenerAlquileres } from "../controllers/alquiler.controller.js";
 
 const router = Router();
