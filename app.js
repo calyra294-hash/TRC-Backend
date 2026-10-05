@@ -11,6 +11,9 @@ app.use(express.json());
 // Rutas
 app.use('/api', apiRouter);
 
+// 💡 Aumenta el límite del body parser para JSON y UrlEncoded
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ limit: '10mb', extended: true }));
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`🚀 Servidor corriendo en puerto ${PORT}`));

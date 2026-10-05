@@ -14,7 +14,7 @@ export const authService = {
     const { data: userData, error: userError } = await supabase
       .from('usuarios')
       .select('*')
-      .eq('id_usuario', authData.user.id)
+      .eq('uuid_auth', authData.user.id)
       .single();
 
     if (userError) {
