@@ -12,7 +12,7 @@ export const authService = {
 
     // Consultamos tu tabla relacional "usuarios" usando el UUID de Supabase Auth
     const { data: userData, error: userError } = await supabase
-      .from('usuarios')
+      .from('usuario')
       .select('*')
       .eq('uuid_auth', authData.user.id)
       .single();
