@@ -1,28 +1,27 @@
-// src/controllers/auth.controller.js
 import { authService } from '../services/auth.service.js';
 
 export const login = async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { idToken } = req.body;
 
-    if (!email || !password) {
+    if (!idToken) {
       return res.status(400).json({
         success: false,
-        message: 'El correo y la contraseña son obligatorios.',
+        message: 'El token de autenticación es obligatorio.',
       });
     }
 
-    const resultado = await authService.signIn(email, password);
+    const resultado = await authService.verificarTokenYObtenerPerfil(idToken);
 
     return res.status(200).json({
       success: true,
-      message: 'Inicio de sesión exitoso',
+      message: 'Inicio de sesión verificado con éxito',
       data: resultado,
     });
   } catch (error) {
     return res.status(401).json({
       success: false,
-      message: 'Error al iniciar sesión',
+      message: 'Error al verificar las credenciales',
       error: error.message,
     });
   }

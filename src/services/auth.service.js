@@ -1,38 +1,34 @@
-// src/services/auth.service.js
-import { supabase } from '../config/supabase.js';
+import { auth, db } from "../config/firebase.js";
 
 export const authService = {
-  async signIn(email, password) {
-    const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-      email: email.trim(),
-      password,
-    });
-    
-    if (authError) throw new Error(`Error de autenticación: ${authError.message}`);
+  async verificarTokenYObtenerPerfil(idToken) {
+    try {
+      // 1. Verificar el token usando la instancia centralizada de Admin Auth
+      const decodedToken = await auth.verifyIdToken(idToken);
+      const uid = decodedToken.uid;
 
-    // Consultamos tu tabla relacional "usuarios" usando el UUID de Supabase Auth
-    const { data: userData, error: userError } = await supabase
-      .from('usuario')
-      .select('*')
-      .eq('uuid_auth', authData.user.id)
-      .single();
+      // 2. Buscar el documento del usuario en Firestore
+      const userDocRef = db.collection("usuario").doc(uid);
+      const userDoc = await userDocRef.get();
 
-    if (userError) {
-      console.warn('Perfil extendido no encontrado en la tabla usuarios:', userError.message);
+      if (!userDoc.exists) {
+        throw new Error("Perfil no encontrado en la colección usuario.");
+      }
+
+      const userData = userDoc.data();
+
+      // 3. Retornar perfil consolidado con rol
+      return {
+        uid,
+        email: decodedToken.email,
+        ...userData,
+      };
+    } catch (error) {
+      throw new Error(`Error en el servidor: ${error.message}`);
     }
-
-    return {
-      session: authData.session,
-      user: {
-        ...authData.user,
-        ...(userData || {}),
-      },
-    };
   },
 
   async signOut() {
-    const { error } = await supabase.auth.signOut();
-    if (error) throw new Error(`Error al cerrar sesión: ${error.message}`);
     return true;
-  }
+  },
 };
