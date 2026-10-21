@@ -1,0 +1,5 @@
+### Variables
+@host = http://localhost:3000
+
+### 1. Obtener todos los usuarios
+GET {{host}}/api/reserva/export-csv

@@ -1,115 +1,75 @@
-import { supabase } from "../config/supabase.js";
+import { formatearFecha } from "../utils/dateFormatter.js";
+import { db } from "../config/firebase.js"
 
-// OBTENER TODAS LAS RESERVAS
-export const obtenerReservasService = async () => {
-    const { data, error } = await supabase
-        .from("reserva")
-        .select(`
-        id_reserva,
-        fecha_inicio,
-        fecha_fin,
-        estado_aprobacion,
-        monto_total,
-        id_usuario,
-        id_coche,
-        usuario (
-        nombre1,
-        apellido1,
-        email
-      ),
-      coche (
-        marca,
-        modelo,
-        placa,
-        valor_dia,
-        url_imagen
-      )
-    `)
-        .order("id_reserva", { ascending: false });
+export const exportarReservasCSVService = async () => {
+  const snapshot = await db.collection( "reservas" ).get();
 
-    if (error) {
-        throw new Error(`Error al obtener reservas: ${error.message}`);
+  const reservas = snapshot.docs.map( ( doc ) => ( {
+    id: doc.id,
+    ...doc.data(),
+  } ) );
+
+  // Función para escapar correctamente valores CSV (evita saltos de línea o comas rotas)
+  const escapar = ( valor ) => {
+    if ( valor === null || valor === undefined ) return "";
+    const str = String( valor );
+    if ( str.includes( "," ) || str.includes( '"' ) || str.includes( "\n" ) )
+    {
+      return `"${ str.replace( /"/g, '""' ) }"`;
     }
+    return str;
+  };
 
-    return data;
-};
+  // Encabezados normalizados en snake_case para el ETL (incluyendo id_alquiler)
+  const encabezados = [
+    "id_reserva",
+    "id_alquiler",
+    "id_usuario",
+    "estado_aprobacion",
+    "fecha_inicio",
+    "fecha_fin",
+    "monto_total",
+    "id_vehiculo",
+    "marca_vehiculo",
+    "modelo_vehiculo",
+    "anio_vehiculo",
+    "placa_vehiculo",
+    "url_imagen_vehiculo",
+    "valor_dia_vehiculo",
+  ];
 
-// OBTENER UNA RESERVA POR ID
-export const obtenerReservaPorIdService = async (id) => {
-    const { data, error } = await supabase
-        .from("reserva")
-        .select(`
-      id_reserva,
-      fecha_inicio,
-      fecha_fin,
-      estado_aprobacion,
-      monto_total,
-      id_usuario,
-      id_coche,
-      usuario (
-        nombre1,
-        apellido1,
-        email
-      ),
-      coche (
-        marca,
-        modelo,
-        placa,
-        valor_dia,
-        url_imagen
-      )
-    `)
-        .eq("id_reserva", id)
-        .single();
+  const lineas = [ encabezados.join( "," ) ];
 
-    if (error) {
-        throw new Error(`Error al obtener la reserva: ${error.message}`);
-    }
+  reservas.forEach( ( res ) => {
+    // Manejo seguro del mapa anidado 'vehiculo'
+    const vehiculo = res.vehiculo || {};
 
-    return data;
-};
+    // Formatear fechas incluyendo la hora (true)
+    const fechaInicio = formatearFecha( res.fecha_inicio, true );
+    const fechaFin = formatearFecha( res.fecha_fin, true );
 
-// CREAR RESERVA
-export const crearReservaService = async (datos) => {
-    const { data, error } = await supabase
-        .from("reserva")
-        .insert([datos])
-        .select()
-        .single();
+    const fila = [
+      escapar( res.id_reserva || res.id ),
+      escapar( res.id_alquiler ), 
+      escapar( res.id_usuario ),
+      escapar( res.estado_aprobacion ),
+      escapar( fechaInicio ),
+      escapar( fechaFin ),
+      res.monto_total ?? "",
+      escapar( vehiculo.id_vehiculo ),
+      escapar( vehiculo.marca ),
+      escapar( vehiculo.modelo ),
+      vehiculo.anio ?? "",
+      escapar( vehiculo.placa ),
+      escapar( vehiculo.url_imagen ),
+      vehiculo.valor_dia ?? "",
+    ];
 
-    if (error) {
-        throw new Error(`Error al crear reserva: ${error.message}`);
-    }
+    lineas.push( fila.join( "," ) );
+  } );
 
-    return data;
-};
-
-// ACTUALIZAR ESTADO DE RESERVA
-export const actualizarEstadoReservaService = async (id, estado) => {
-    const { data, error } = await supabase
-        .from("reserva")
-        .update({ estado_aprobacion: estado })
-        .eq("id_reserva", id)
-        .select()
-        .single();
-
-    if (error) {
-        throw new Error(`Error al actualizar reserva: ${error.message}`);
-    }
-
-    return data;
-};
-
-// ELIMINAR RESERVA
-export const eliminarReservaService = async (id) => {
-    const { error } = await supabase
-        .from("reserva")
-        .delete()
-        .eq("id_reserva", id);
-
-    if (error) {
-        throw new Error(`Error al eliminar reserva: ${error.message}`);
-    }
-
-    return true;
+  return {
+    filename: `reservas-${ new Date().toISOString().slice( 0, 10 ) }.csv`,
+    csvContent: lineas.join( "\n" ),
+  };
 };
