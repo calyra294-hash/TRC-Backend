@@ -1,291 +1,254 @@
+
 import { supabase } from "../config/supabase.js";
-import { db } from "../config/firebase.js"
-import { formatearFecha } from "../utils/dateFormatter.js"
+import { db } from "../config/firebase.js";
+import { formatearFecha } from "../utils/dateFormatter.js";
 
 const COLECCION = "alquiler";
 
 // OBTENER TODOS LOS ALQUILERES
-export const obtenerAlquileresService = async ( idUsuario = null ) => {
-  try
-  {
+export const obtenerAlquileresService = async (idUsuario = null) => {
+  try {
     const { data: alquileres, error: errorAlquileres } = await supabase
-      .from( COLECCION )
-      .select( `
-                id_alquiler,
-                id_reserva,
-                fecha_inicio,
-                fecha_fin,
-                estado,
-                fecha_entrega,
-                fecha_devolucion,
-                monto_final,
-                especificaciones
-            `)
-      .order( "id_alquiler", { ascending: false } );
+      .from(COLECCION)
+      .select(`
+        id_alquiler,
+        id_reserva,
+        fecha_inicio,
+        fecha_fin,
+        estado,
+        fecha_entrega,
+        fecha_devolucion,
+        monto_final,
+        especificaciones
+      `)
+      .order("id_alquiler", { ascending: false });
 
-    if ( errorAlquileres )
-    {
+    if (errorAlquileres) {
       throw new Error(
-        `Error al consultar alquileres: ${ errorAlquileres.message }`
+        `Error al consultar alquileres: ${errorAlquileres.message}`
       );
     }
 
-    if ( !alquileres || alquileres.length === 0 )
-    {
+    if (!alquileres || alquileres.length === 0) {
       return [];
     }
 
-    const idsAlquiler = alquileres.map(
-      ( alquiler ) => alquiler.id_alquiler
-    );
+    const idsAlquiler = alquileres
+      .map((alquiler) => alquiler.id_alquiler)
+      .filter((id) => id !== null && id !== undefined);
+
+    if (idsAlquiler.length === 0) {
+      return [];
+    }
 
     const { data: detalles, error: errorDetalles } = await supabase
-      .from( "detalle_alquiler" )
-      .select( `
-                id_detalle_alquiler,
-                id_alquiler,
-                id_usuario,
-                id_vehiculo,
-                precio_total,
-                cantidad_dias
-            `)
-      .in( "id_alquiler", idsAlquiler );
+      .from("detalle_alquiler")
+      .select(`
+        id_detalle_alquiler,
+        id_alquiler,
+        id_usuario,
+        id_coche,
+        precio_total,
+        valor_dia,
+        cantidad_dias
+      `)
+      .in("id_alquiler", idsAlquiler);
 
-    if ( errorDetalles )
-    {
+    if (errorDetalles) {
       throw new Error(
-        `Error al consultar detalles de alquiler: ${ errorDetalles.message }`
+        `Error al consultar detalles de alquiler: ${errorDetalles.message}`
       );
     }
 
     let detallesFiltrados = detalles || [];
 
-    if ( idUsuario )
-    {
+    if (idUsuario !== null && idUsuario !== undefined && idUsuario !== "") {
       detallesFiltrados = detallesFiltrados.filter(
-        ( detalle ) =>
-          String( detalle.id_usuario ) === String( idUsuario )
+        (detalle) => String(detalle.id_usuario) === String(idUsuario)
       );
     }
 
-    if ( detallesFiltrados.length === 0 )
-    {
+    if (detallesFiltrados.length === 0) {
       return [];
     }
 
-    const idsVehiculo = [
+    const idsCoche = [
       ...new Set(
         detallesFiltrados
-          .map( ( detalle ) => detalle.id_vehiculo )
-          .filter( Boolean )
+          .map((detalle) => detalle.id_coche)
+          .filter((id) => id !== null && id !== undefined)
       ),
     ];
 
-    let vehiculos = [];
+    let coches = [];
 
-    if ( idsVehiculo.length > 0 )
-    {
-      const { data: datosVehiculos, error: errorVehiculos } =
-        await supabase
-          .from( "vehiculo" )
-          .select( `
-                        id_vehiculo,
-                        marca,
-                        modelo,
-                        placa,
-                        valor_dia,
-                        url_imagen
-                    `)
-          .in( "id_vehiculo", idsVehiculo );
+    if (idsCoche.length > 0) {
+      const { data: datosCoches, error: errorCoches } = await supabase
+        .from("coche")
+        .select(`
+          id_coche,
+          marca,
+          modelo,
+          anio,
+          placa,
+          valor_dia,
+          url_imagen
+        `)
+        .in("id_coche", idsCoche);
 
-      if ( errorVehiculos )
-      {
+      if (errorCoches) {
         throw new Error(
-          `Error al consultar vehículos: ${ errorVehiculos.message }`
+          `Error al consultar coches: ${errorCoches.message}`
         );
       }
 
-      vehiculos = datosVehiculos || [];
+      coches = datosCoches || [];
     }
 
     const resultado = detallesFiltrados
-      .map( ( detalle ) => {
+      .map((detalle) => {
         const alquiler = alquileres.find(
-          ( item ) =>
-            String( item.id_alquiler ) ===
-            String( detalle.id_alquiler )
+          (item) =>
+            String(item.id_alquiler) === String(detalle.id_alquiler)
         );
 
-        if ( !alquiler )
-        {
+        if (!alquiler) {
           return null;
         }
 
-        const vehiculo = vehiculos.find(
-          ( item ) =>
-            String( item.id_vehiculo ) ===
-            String( detalle.id_vehiculo )
+        const coche = coches.find(
+          (item) => String(item.id_coche) === String(detalle.id_coche)
         );
 
-        const especificaciones =
-          alquiler.especificaciones || {};
+        const especificaciones = alquiler.especificaciones || {};
 
         return {
-          id: String( alquiler.id_alquiler ),
+          id: String(alquiler.id_alquiler),
           id_alquiler: alquiler.id_alquiler,
-
-          id_reserva: alquiler.id_reserva
-            ? String( alquiler.id_reserva )
-            : "",
-
+          id_reserva: alquiler.id_reserva ?? "",
           id_usuario: detalle.id_usuario,
-          id_vehiculo: detalle.id_vehiculo,
 
-          estado_alquiler:
-            alquiler.estado || "Sin estado",
+          // Se conserva id_vehiculo para compatibilidad con la app móvil.
+          id_vehiculo: detalle.id_coche,
 
-          fecha_inicio:
-            alquiler.fecha_inicio || null,
+          estado_alquiler: alquiler.estado || "Sin estado",
+          estado: alquiler.estado || "Sin estado",
 
-          fecha_fin:
-            alquiler.fecha_fin || null,
-
-          fecha_entrega:
-            alquiler.fecha_entrega || null,
-
-          fecha_devolucion:
-            alquiler.fecha_devolucion || null,
+          fecha_inicio: alquiler.fecha_inicio || null,
+          fecha_fin: alquiler.fecha_fin || null,
+          fecha_entrega: alquiler.fecha_entrega || null,
+          fecha_devolucion: alquiler.fecha_devolucion || null,
 
           monto_final:
-            Number( alquiler.monto_final ) ||
-            Number( detalle.precio_total ) ||
+            Number(alquiler.monto_final) ||
+            Number(detalle.precio_total) ||
             0,
 
-          cantidad_dias:
-            Number( detalle.cantidad_dias ) || 0,
+          cantidad_dias: Number(detalle.cantidad_dias) || 0,
 
           vehiculo: {
-            id_vehiculo:
-              vehiculo?.id_vehiculo ||
-              detalle.id_vehiculo,
-
-            marca:
-              vehiculo?.marca ||
-              "Vehículo",
-
-            modelo:
-              vehiculo?.modelo ||
-              "",
-
-            placa:
-              vehiculo?.placa ||
-              "",
-
+            id_vehiculo: coche?.id_coche ?? detalle.id_coche,
+            id_coche: coche?.id_coche ?? detalle.id_coche,
+            marca: coche?.marca || "Vehículo",
+            modelo: coche?.modelo || "",
+            anio: coche?.anio ?? "",
+            placa: coche?.placa || "",
             valor_dia:
-              Number( vehiculo?.valor_dia ) || 0,
-
-            foto_principal:
-              vehiculo?.url_imagen ||
-              null,
+              Number(coche?.valor_dia ?? detalle.valor_dia) || 0,
+            foto_principal: coche?.url_imagen || null,
+            url_imagen: coche?.url_imagen || null,
           },
 
           especificaciones: {
             estado_general:
-              especificaciones.estado_general ||
-              "No especificado",
-
+              especificaciones.estado_general || "No especificado",
             kilometraje_devolucion:
-              especificaciones.kilometraje_devolucion ??
-              "No aplica",
-
+              especificaciones.kilometraje_devolucion ?? "No aplica",
             nivel_combustible:
-              especificaciones.nivel_combustible ||
-              "No aplica",
+              especificaciones.nivel_combustible || "No aplica",
           },
         };
-      } )
-      .filter( Boolean );
+      })
+      .filter(Boolean);
 
     return resultado;
-  } catch ( error )
-  {
-    throw new Error(
-      `Error al consultar alquileres: ${ error.message }`
-    );
+  } catch (error) {
+    throw new Error(`Error al consultar alquileres: ${error.message}`);
   }
 };
 
+// EXPORTAR ALQUILERES A CSV
 export const exportarAlquileresCSVService = async () => {
-  const snapshot = await db.collection( "alquiler" ).get();
+  // Los alquileres se consultan desde Supabase, no desde Firebase.
+  const alquileres = await obtenerAlquileresService();
 
-  const alquileres = snapshot.docs.map( ( doc ) => ( {
-    id: doc.id,
-    ...doc.data(),
-  } ) );
+  const escapar = (valor) => {
+    if (valor === null || valor === undefined) return "";
 
-  // Función para escapar correctamente valores CSV (evita saltos de línea o comas rotas)
-  const escapar = ( valor ) => {
-    if ( valor === null || valor === undefined ) return "";
-    const str = String( valor );
-    if ( str.includes( "," ) || str.includes( '"' ) || str.includes( "\n" ) )
-    {
-      return `"${ str.replace( /"/g, '""' ) }"`;
+    const str = String(valor);
+
+    if (
+      str.includes(",") ||
+      str.includes('"') ||
+      str.includes("\n") ||
+      str.includes("\r")
+    ) {
+      return `"${str.replace(/"/g, '""')}"`;
     }
+
     return str;
   };
 
-  // Encabezados combinados (Campos base + Propiedades aplanadas del vehiculo)
   const encabezados = [
     "id_alquiler",
     "id_reserva",
+    "id_usuario",
     "estado",
     "fecha_inicio",
     "fecha_fin",
     "fecha_entrega",
     "fecha_devolucion",
     "monto_final",
-    "id_vehiculo",
-    "marca_vehiculo",
-    "modelo_vehiculo",
-    "anio_vehiculo",
-    "placa_vehiculo",
-    "valor_dia_vehiculo",
+    "cantidad_dias",
+    "id_coche",
+    "marca_coche",
+    "modelo_coche",
+    "anio_coche",
+    "placa_coche",
+    "valor_dia",
+    "url_imagen",
   ];
 
-  const lineas = [ encabezados.join( "," ) ];
+  const lineas = [encabezados.join(",")];
 
-  alquileres.forEach( ( alq ) => {
-    // Manejo seguro del mapa anidado 'vehiculo'
-    const vehiculo = alq.vehiculo || {};
-
-    // Formatear cada campo de fecha de forma independiente y robusta
-    const fechaInicio = formatearFecha(alq.fecha_inicio, true);
-    const fechaFin = formatearFecha(alq.fecha_fin, true);
-    const fechaEntrega = formatearFecha(alq.fecha_entrega, true);
-    const fechaDevolucion = formatearFecha(alq.fecha_devolucion, true);
+  alquileres.forEach((alq) => {
+    const coche = alq.vehiculo || {};
 
     const fila = [
-      escapar( alq.id_alquiler || alq.id ),
-      escapar( alq.id_reserva ),
-      escapar( alq.estado ),
-      escapar( fechaInicio ),
-      escapar( fechaFin ),
-      escapar( fechaEntrega ),
-      escapar( fechaDevolucion ),
-      alq.monto_final ?? "",
-      escapar( vehiculo.id_vehiculo ),
-      escapar( vehiculo.marca ),
-      escapar( vehiculo.modelo ),
-      vehiculo.anio ?? "",
-      escapar( vehiculo.placa ),
-      vehiculo.valor_dia ?? "",
+      escapar(alq.id_alquiler ?? alq.id),
+      escapar(alq.id_reserva),
+      escapar(alq.id_usuario),
+      escapar(alq.estado),
+      escapar(formatearFecha(alq.fecha_inicio, true)),
+      escapar(formatearFecha(alq.fecha_fin, true)),
+      escapar(formatearFecha(alq.fecha_entrega, true)),
+      escapar(formatearFecha(alq.fecha_devolucion, true)),
+      escapar(alq.monto_final),
+      escapar(alq.cantidad_dias),
+      escapar(coche.id_coche),
+      escapar(coche.marca),
+      escapar(coche.modelo),
+      escapar(coche.anio),
+      escapar(coche.placa),
+      escapar(coche.valor_dia),
+      escapar(coche.url_imagen || coche.foto_principal),
     ];
 
-    lineas.push( fila.join( "," ) );
-  } );
+    lineas.push(fila.join(","));
+  });
 
   return {
-    filename: `alquileres-${ new Date().toISOString().slice( 0, 10 ) }.csv`,
-    csvContent: lineas.join( "\n" ),
+    filename: `alquileres-${new Date().toISOString().slice(0, 10)}.csv`,
+    csvContent: lineas.join("\n"),
   };
 };
