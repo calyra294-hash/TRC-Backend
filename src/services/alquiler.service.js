@@ -225,23 +225,20 @@ export const exportarAlquileresCSVService = async () => {
     const coche = alq.vehiculo || {};
 
     const fila = [
-      escapar(alq.id_alquiler ?? alq.id),
-      escapar(alq.id_reserva),
-      escapar(alq.id_usuario),
-      escapar(alq.estado),
-      escapar(formatearFecha(alq.fecha_inicio, true)),
-      escapar(formatearFecha(alq.fecha_fin, true)),
-      escapar(formatearFecha(alq.fecha_entrega, true)),
-      escapar(formatearFecha(alq.fecha_devolucion, true)),
-      escapar(alq.monto_final),
-      escapar(alq.cantidad_dias),
-      escapar(coche.id_coche),
-      escapar(coche.marca),
-      escapar(coche.modelo),
-      escapar(coche.anio),
-      escapar(coche.placa),
-      escapar(coche.valor_dia),
-      escapar(coche.url_imagen || coche.foto_principal),
+      escapar( alq.id_alquiler || alq.id ),
+      escapar( alq.id_reserva ),
+      escapar( alq.estado ),
+      escapar( fechaInicio ),
+      escapar( fechaFin ),
+      escapar( fechaEntrega ),
+      escapar( fechaDevolucion ),
+      alq.monto_final ?? "",
+      escapar( vehiculo.id_vehiculo ),
+      escapar( vehiculo.marca ),
+      escapar( vehiculo.modelo ),
+      vehiculo.anio ?? "",
+      escapar( vehiculo.placa ),
+      vehiculo.valor_dia ?? "",
     ];
 
     lineas.push(fila.join(","));
