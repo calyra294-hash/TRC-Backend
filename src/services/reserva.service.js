@@ -1,42 +1,133 @@
-
 import { db } from "../config/firebase.js";
+import { supabase } from "../config/supabase.js";
 
 const COLECCION = "reservas";
 
+// Obtener perfil del usuario desde Firebase
 const obtenerPerfil = async (uid) => {
   const documento = await db.collection("usuario").doc(uid).get();
   return documento.exists ? documento.data() : {};
 };
 
+// Verificar rol de administrador
 const esAdministrador = (rol) => {
   return ["admin", "administrador"].includes(
     String(rol || "").toLowerCase()
   );
 };
 
+// Obtener información del vehículo desde Supabase
+const obtenerVehiculo = async (idCoche) => {
+  if (
+    idCoche === undefined ||
+    idCoche === null ||
+    idCoche === ""
+  ) {
+    return null;
+  }
+
+  const id = Number(idCoche);
+
+  if (!Number.isFinite(id)) {
+    return null;
+  }
+
+  const { data, error } = await supabase
+    .from("coche")
+    .select(`
+      id_coche,
+      marca,
+      modelo,
+      anio,
+      color,
+      valor_dia,
+      url_imagen,
+      estado,
+      descripcion
+    `)
+    .eq("id_coche", id)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(
+      `Error al consultar el vehículo ${id}: ${error.message}`
+    );
+  }
+
+  if (!data) {
+    return null;
+  }
+
+  return {
+    id: String(data.id_coche),
+    id_coche: data.id_coche,
+    marca: data.marca || "",
+    modelo: data.modelo || "",
+    nombre: `${data.marca || ""} ${data.modelo || ""}`.trim(),
+    anio: data.anio ?? null,
+    color: data.color || "",
+    precio: Number(data.valor_dia) || 0,
+    valor_dia: Number(data.valor_dia) || 0,
+    imagen: data.url_imagen || null,
+    url_imagen: data.url_imagen || null,
+    estado: data.estado || "",
+    descripcion: data.descripcion || "",
+  };
+};
+
+// Agregar información del vehículo sin modificar Firebase
+const completarReservaConVehiculo = async (reserva) => {
+  const coche = await obtenerVehiculo(reserva.id_coche);
+
+  return {
+    ...reserva,
+    coche,
+  };
+};
+
 // CREAR RESERVA
 export const crearReservaService = async (datos, usuario) => {
   if (!usuario || !usuario.uid) {
-    throw new Error("No se pudo identificar al usuario autenticado.");
+    throw new Error(
+      "No se pudo identificar al usuario autenticado."
+    );
+  }
+
+  const idCoche = Number(datos.id_coche);
+  const montoTotal = Number(datos.monto_total);
+
+  if (!Number.isFinite(idCoche) || idCoche <= 0) {
+    throw new Error("El vehículo seleccionado no es válido.");
+  }
+
+  if (
+    !datos.fecha_inicio ||
+    !datos.fecha_fin ||
+    !Number.isFinite(montoTotal) ||
+    montoTotal < 0
+  ) {
+    throw new Error("Los datos de la reserva no son válidos.");
   }
 
   const reserva = {
     uid_usuario: usuario.uid,
     email_usuario: usuario.email || "",
-    id_coche: Number(datos.id_coche),
+    id_coche: idCoche,
     fecha_inicio: datos.fecha_inicio,
     fecha_fin: datos.fecha_fin,
     estado_aprobacion: "pendiente",
-    monto_total: Number(datos.monto_total),
+    monto_total: montoTotal,
     fecha_creacion: new Date().toISOString(),
   };
 
-  const referencia = await db.collection(COLECCION).add(reserva);
+  const referencia = await db
+    .collection(COLECCION)
+    .add(reserva);
 
-  return {
+  return completarReservaConVehiculo({
     id: referencia.id,
     ...reserva,
-  };
+  });
 };
 
 // OBTENER RESERVAS
@@ -49,19 +140,30 @@ export const obtenerReservasService = async (usuario) => {
   let consulta = db.collection(COLECCION);
 
   if (!esAdministrador(perfil.rol)) {
-    consulta = consulta.where("uid_usuario", "==", usuario.uid);
+    consulta = consulta.where(
+      "uid_usuario",
+      "==",
+      usuario.uid
+    );
   }
 
   const snapshot = await consulta.get();
 
-  return snapshot.docs.map((doc) => ({
+  const reservas = snapshot.docs.map((doc) => ({
     id: doc.id,
     ...doc.data(),
   }));
+
+  return Promise.all(
+    reservas.map(completarReservaConVehiculo)
+  );
 };
 
 // OBTENER UNA RESERVA POR ID
-export const obtenerReservaPorIdService = async (id, usuario) => {
+export const obtenerReservaPorIdService = async (
+  id,
+  usuario
+) => {
   if (!usuario || !usuario.uid) {
     throw new Error("No se pudo identificar al usuario.");
   }
@@ -93,7 +195,7 @@ export const obtenerReservaPorIdService = async (id, usuario) => {
     throw error;
   }
 
-  return reserva;
+  return completarReservaConVehiculo(reserva);
 };
 
 // ACTUALIZAR ESTADO DE RESERVA
@@ -146,10 +248,10 @@ export const actualizarEstadoReservaService = async (
 
   const actualizado = await referencia.get();
 
-  return {
+  return completarReservaConVehiculo({
     id: actualizado.id,
     ...actualizado.data(),
-  };
+  });
 };
 
 // ELIMINAR RESERVA
@@ -220,6 +322,9 @@ export const exportarReservasCSVService = async () => {
       "reservas-" +
       new Date().toISOString().slice(0, 10) +
       ".csv",
-    csvContent: [columnas.join(","), ...filas].join("\r\n"),
+    csvContent: [
+      columnas.join(","),
+      ...filas,
+    ].join("\r\n"),
   };
 };
