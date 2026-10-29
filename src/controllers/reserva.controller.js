@@ -4,11 +4,22 @@ import {
   exportarReservasCSVService,
 } from "../services/reserva.service.js";
 
+import { resolverUsuarioSupabase } from "../utils/resolverUsuarioSupabase.js";
+
 export const obtenerReservas = async (req, res) => {
   try {
-    const idUsuario = req.query.id_usuario || null;
+    const { admin, idUsuario } = await resolverUsuarioSupabase(req);
 
-    const reservas = await obtenerReservasService(idUsuario);
+    if (!admin && idUsuario == null) {
+      return res.status(200).json({
+        success: true,
+        data: [],
+      });
+    }
+
+    const reservas = await obtenerReservasService(
+      admin ? null : idUsuario
+    );
 
     return res.status(200).json({
       success: true,
@@ -17,7 +28,7 @@ export const obtenerReservas = async (req, res) => {
   } catch (error) {
     console.error("Error al obtener reservas:", error);
 
-    return res.status(500).json({
+    return res.status(error.status || 500).json({
       success: false,
       mensaje: "Error al obtener las reservas.",
       error: error.message,
@@ -36,7 +47,6 @@ export const exportarReservasCSV = async (req, res) => {
       `attachment; filename="${filename}"`
     );
 
-    // BOM UTF-8 para Excel
     res.write("\uFEFF");
     res.end(csvContent);
   } catch (error) {
