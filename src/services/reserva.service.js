@@ -1,127 +1,225 @@
 
-import { supabase } from "../config/supabase.js";
-import { formatearFecha } from "../utils/dateFormatter.js";
+import { db } from "../config/firebase.js";
 
-// Obtener reservas desde Supabase
-export const obtenerReservasService = async (idUsuario = null) => {
-  let consulta = supabase
-    .from("reserva")
-    .select(`
-      id_reserva,
-      id_usuario,
-      id_coche,
-      fecha_inicio,
-      fecha_fin,
-      estado_aprobacion,
-      monto_total,
-      coche:coche (
-        id_coche,
-        marca,
-        modelo,
-        anio,
-        placa,
-        url_imagen,
-        valor_dia
-      )
-    `)
-    .order("id_reserva", { ascending: false });
+const COLECCION = "reservas";
 
-  if (idUsuario !== null && idUsuario !== undefined) {
-    consulta = consulta.eq("id_usuario", idUsuario);
+const obtenerPerfil = async (uid) => {
+  const documento = await db.collection("usuario").doc(uid).get();
+  return documento.exists ? documento.data() : {};
+};
+
+const esAdministrador = (rol) => {
+  return ["admin", "administrador"].includes(
+    String(rol || "").toLowerCase()
+  );
+};
+
+// CREAR RESERVA
+export const crearReservaService = async (datos, usuario) => {
+  if (!usuario || !usuario.uid) {
+    throw new Error("No se pudo identificar al usuario autenticado.");
   }
 
-  const { data, error } = await consulta;
+  const reserva = {
+    uid_usuario: usuario.uid,
+    email_usuario: usuario.email || "",
+    id_coche: Number(datos.id_coche),
+    fecha_inicio: datos.fecha_inicio,
+    fecha_fin: datos.fecha_fin,
+    estado_aprobacion: "pendiente",
+    monto_total: Number(datos.monto_total),
+    fecha_creacion: new Date().toISOString(),
+  };
 
-  if (error) {
-    throw new Error(`Error al consultar reservas: ${error.message}`);
-  }
+  const referencia = await db.collection(COLECCION).add(reserva);
 
-  return (data || []).map((reserva) => ({
+  return {
+    id: referencia.id,
     ...reserva,
-    id: String(reserva.id_reserva),
-    id_vehiculo: reserva.id_coche,
-    vehiculo: reserva.coche
-      ? {
-        id_vehiculo: reserva.coche.id_coche,
-        marca: reserva.coche.marca,
-        modelo: reserva.coche.modelo,
-        anio: reserva.coche.anio,
-        placa: reserva.coche.placa,
-        url_imagen: reserva.coche.url_imagen,
-        valor_dia: reserva.coche.valor_dia,
-      }
-      : null,
+  };
+};
+
+// OBTENER RESERVAS
+export const obtenerReservasService = async (usuario) => {
+  if (!usuario || !usuario.uid) {
+    throw new Error("No se pudo identificar al usuario.");
+  }
+
+  const perfil = await obtenerPerfil(usuario.uid);
+  let consulta = db.collection(COLECCION);
+
+  if (!esAdministrador(perfil.rol)) {
+    consulta = consulta.where("uid_usuario", "==", usuario.uid);
+  }
+
+  const snapshot = await consulta.get();
+
+  return snapshot.docs.map((doc) => ({
+    id: doc.id,
+    ...doc.data(),
   }));
 };
 
-// Exportar reservas a CSV
-export const exportarReservasCSVService = async () => {
-  const reservas = await obtenerReservasService();
+// OBTENER UNA RESERVA POR ID
+export const obtenerReservaPorIdService = async (id, usuario) => {
+  if (!usuario || !usuario.uid) {
+    throw new Error("No se pudo identificar al usuario.");
+  }
 
-  const escapar = (valor) => {
-    if (valor === null || valor === undefined) return "";
+  const referencia = await db
+    .collection(COLECCION)
+    .doc(String(id))
+    .get();
 
-    const str = String(valor);
+  if (!referencia.exists) {
+    return null;
+  }
 
-    if (
-      str.includes(",") ||
-      str.includes('"') ||
-      str.includes("\n") ||
-      str.includes("\r")
-    ) {
-      return `"${str.replace(/"/g, '""')}"`;
-    }
-
-    return str;
+  const reserva = {
+    id: referencia.id,
+    ...referencia.data(),
   };
 
-  const encabezados = [
-    "id_reserva",
-    "id_alquiler",
-    "id_usuario",
-    "estado_aprobacion",
-    "fecha_inicio",
-    "fecha_fin",
-    "monto_total",
-    "id_vehiculo",
-    "marca_vehiculo",
-    "modelo_vehiculo",
-    "anio_vehiculo",
-    "placa_vehiculo",
-    "url_imagen_vehiculo",
-    "valor_dia_vehiculo",
+  const perfil = await obtenerPerfil(usuario.uid);
+
+  if (
+    !esAdministrador(perfil.rol) &&
+    reserva.uid_usuario !== usuario.uid
+  ) {
+    const error = new Error(
+      "No tenés permiso para consultar esta reserva."
+    );
+    error.status = 403;
+    throw error;
+  }
+
+  return reserva;
+};
+
+// ACTUALIZAR ESTADO DE RESERVA
+export const actualizarEstadoReservaService = async (
+  id,
+  estado,
+  usuario
+) => {
+  const estadosPermitidos = [
+    "pendiente",
+    "aprobada",
+    "rechazada",
+    "cancelada",
   ];
 
-  const lineas = [encabezados.join(",")];
+  const estadoNuevo = String(estado || "").toLowerCase();
 
-  reservas.forEach((reserva) => {
-    const vehiculo = reserva.vehiculo || {};
+  if (!estadosPermitidos.includes(estadoNuevo)) {
+    throw new Error("El estado de la reserva no es válido.");
+  }
 
-    const fechaInicio = formatearFecha(reserva.fecha_inicio, true);
-    const fechaFin = formatearFecha(reserva.fecha_fin, true);
+  if (!usuario || !usuario.uid) {
+    throw new Error("No se pudo identificar al usuario.");
+  }
 
-    const fila = [
-      escapar(reserva.id_reserva),
-      escapar(""),
-      escapar(reserva.id_usuario),
-      escapar(reserva.estado_aprobacion),
-      escapar(fechaInicio),
-      escapar(fechaFin),
-      escapar(reserva.monto_total),
-      escapar(vehiculo.id_vehiculo),
-      escapar(vehiculo.marca),
-      escapar(vehiculo.modelo),
-      escapar(vehiculo.anio),
-      escapar(vehiculo.placa),
-      escapar(vehiculo.url_imagen),
-      escapar(vehiculo.valor_dia),
-    ];
+  const perfil = await obtenerPerfil(usuario.uid);
 
-    lineas.push(fila.join(","));
+  if (!esAdministrador(perfil.rol)) {
+    const error = new Error(
+      "Solo el administrador puede cambiar el estado."
+    );
+    error.status = 403;
+    throw error;
+  }
+
+  const referencia = db
+    .collection(COLECCION)
+    .doc(String(id));
+
+  const documento = await referencia.get();
+
+  if (!documento.exists) {
+    return null;
+  }
+
+  await referencia.update({
+    estado_aprobacion: estadoNuevo,
+    fecha_actualizacion: new Date().toISOString(),
+  });
+
+  const actualizado = await referencia.get();
+
+  return {
+    id: actualizado.id,
+    ...actualizado.data(),
+  };
+};
+
+// ELIMINAR RESERVA
+export const eliminarReservaService = async (id, usuario) => {
+  if (!usuario || !usuario.uid) {
+    throw new Error("No se pudo identificar al usuario.");
+  }
+
+  const perfil = await obtenerPerfil(usuario.uid);
+
+  if (!esAdministrador(perfil.rol)) {
+    const error = new Error(
+      "Solo el administrador puede eliminar reservas."
+    );
+    error.status = 403;
+    throw error;
+  }
+
+  const referencia = db
+    .collection(COLECCION)
+    .doc(String(id));
+
+  const documento = await referencia.get();
+
+  if (!documento.exists) {
+    return false;
+  }
+
+  await referencia.delete();
+
+  return true;
+};
+
+// EXPORTAR RESERVAS A CSV
+export const exportarReservasCSVService = async () => {
+  const snapshot = await db.collection(COLECCION).get();
+
+  const columnas = [
+    "id",
+    "uid_usuario",
+    "email_usuario",
+    "id_coche",
+    "fecha_inicio",
+    "fecha_fin",
+    "estado_aprobacion",
+    "monto_total",
+    "fecha_creacion",
+  ];
+
+  const escapar = (valor) => {
+    const texto = String(valor ?? "");
+    return '"' + texto.replace(/"/g, '""') + '"';
+  };
+
+  const filas = snapshot.docs.map((doc) => {
+    const reserva = {
+      id: doc.id,
+      ...doc.data(),
+    };
+
+    return columnas
+      .map((columna) => escapar(reserva[columna]))
+      .join(",");
   });
 
   return {
-    filename: `reservas-${new Date().toISOString().slice(0, 10)}.csv`,
-    csvContent: lineas.join("\n"),
+    filename:
+      "reservas-" +
+      new Date().toISOString().slice(0, 10) +
+      ".csv",
+    csvContent: [columnas.join(","), ...filas].join("\r\n"),
   };
 };

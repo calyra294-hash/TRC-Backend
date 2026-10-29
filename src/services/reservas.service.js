@@ -1,105 +1,166 @@
-const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000/api';
 
-// OBTENER TODAS LAS RESERVAS
-export const getReservas = async () => {
-    try {
-        const response = await fetch(`${API_URL}/reserva`);
+import { db } from "../config/firebase.js";
 
-        if (!response.ok) {
-            throw new Error(`Error en la petición: ${response.status}`);
-        }
+const COLECCION = "reservas";
 
-        const json = await response.json();
-
-        return json.data || [];
-    } catch (error) {
-        console.error('Error al consumir /reserva:', error);
-        throw error;
+// CREAR RESERVA EN FIRESTORE
+export const crearReservaService = async (datos, usuario) => {
+    if (!usuario?.uid) {
+        throw new Error("No se pudo identificar al usuario autenticado.");
     }
+
+    const reserva = {
+        uid_usuario: usuario.uid,
+        email_usuario: usuario.email || "",
+        id_coche: Number(datos.id_coche),
+        fecha_inicio: datos.fecha_inicio,
+        fecha_fin: datos.fecha_fin,
+        estado_aprobacion: "pendiente",
+        monto_total: Number(datos.monto_total),
+        fecha_creacion: new Date().toISOString(),
+    };
+
+    const referencia = await db.collection(COLECCION).add(reserva);
+
+    return { id: referencia.id, ...reserva };
 };
 
-// OBTENER UNA RESERVA
-export const getReservaPorId = async (id) => {
-    try {
-        const response = await fetch(`${API_URL}/reserva/${id}`);
-
-        if (!response.ok) {
-            throw new Error(`Error en la petición: ${response.status}`);
-        }
-
-        const json = await response.json();
-
-        return json.data;
-    } catch (error) {
-        console.error('Error al obtener reserva:', error);
-        throw error;
+// OBTENER RESERVAS
+export const obtenerReservasService = async (usuario) => {
+    if (!usuario?.uid) {
+        throw new Error("No se pudo identificar al usuario.");
     }
+
+    const perfil = await db.collection("usuario").doc(usuario.uid).get();
+    const rol = String(perfil.data()?.rol || "").toLowerCase();
+
+    let consulta = db.collection(COLECCION);
+
+    if (!["admin", "administrador"].includes(rol)) {
+        consulta = consulta.where("uid_usuario", "==", usuario.uid);
+    }
+
+    const snapshot = await consulta.get();
+
+    return snapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+    }));
 };
 
-// CREAR RESERVA
-export const crearReserva = async (datos) => {
-    try {
-        const response = await fetch(`${API_URL}/reserva`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(datos),
-        });
+// OBTENER UNA RESERVA POR ID
+export const obtenerReservaPorIdService = async (id, usuario) => {
+    const referencia = await db.collection(COLECCION).doc(String(id)).get();
 
-        if (!response.ok) {
-            throw new Error(`Error al crear reserva: ${response.status}`);
-        }
+    if (!referencia.exists) return null;
 
-        const json = await response.json();
+    const reserva = { id: referencia.id, ...referencia.data() };
+    const perfil = await db.collection("usuario").doc(usuario.uid).get();
+    const rol = String(perfil.data()?.rol || "").toLowerCase();
 
-        return json.data;
-    } catch (error) {
-        console.error('Error al crear reserva:', error);
+    if (
+        !["admin", "administrador"].includes(rol) &&
+        reserva.uid_usuario !== usuario.uid
+    ) {
+        const error = new Error("No tenés permiso para consultar esta reserva.");
+        error.status = 403;
         throw error;
     }
+
+    return reserva;
 };
 
 // ACTUALIZAR ESTADO
-export const actualizarEstadoReserva = async (id, estado) => {
-    try {
-        const response = await fetch(`${API_URL}/reserva/${id}/estado`, {
-            method: 'PUT',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                estado,
-            }),
-        });
+export const actualizarEstadoReservaService = async (id, estado, usuario) => {
+    const estadosPermitidos = [
+        "pendiente",
+        "aprobada",
+        "rechazada",
+        "cancelada",
+    ];
 
-        if (!response.ok) {
-            throw new Error(`Error al actualizar reserva: ${response.status}`);
-        }
+    const estadoNuevo = String(estado).toLowerCase();
 
-        const json = await response.json();
+    if (!estadosPermitidos.includes(estadoNuevo)) {
+        throw new Error("El estado de la reserva no es válido.");
+    }
 
-        return json.data;
-    } catch (error) {
-        console.error('Error al actualizar estado:', error);
+    const perfil = await db.collection("usuario").doc(usuario.uid).get();
+    const rol = String(perfil.data()?.rol || "").toLowerCase();
+
+    if (!["admin", "administrador"].includes(rol)) {
+        const error = new Error("Solo el administrador puede cambiar el estado.");
+        error.status = 403;
         throw error;
     }
+
+    const referencia = db.collection(COLECCION).doc(String(id));
+    const documento = await referencia.get();
+
+    if (!documento.exists) return null;
+
+    await referencia.update({
+        estado_aprobacion: estadoNuevo,
+        fecha_actualizacion: new Date().toISOString(),
+    });
+
+    const actualizado = await referencia.get();
+
+    return { id: actualizado.id, ...actualizado.data() };
 };
 
 // ELIMINAR RESERVA
-export const eliminarReserva = async (id) => {
-    try {
-        const response = await fetch(`${API_URL}/reserva/${id}`, {
-            method: 'DELETE',
-        });
+export const eliminarReservaService = async (id, usuario) => {
+    const perfil = await db.collection("usuario").doc(usuario.uid).get();
+    const rol = String(perfil.data()?.rol || "").toLowerCase();
 
-        if (!response.ok) {
-            throw new Error(`Error al eliminar reserva: ${response.status}`);
-        }
-
-        return true;
-    } catch (error) {
-        console.error('Error al eliminar reserva:', error);
+    if (!["admin", "administrador"].includes(rol)) {
+        const error = new Error("Solo el administrador puede eliminar reservas.");
+        error.status = 403;
         throw error;
     }
+
+    const referencia = db.collection(COLECCION).doc(String(id));
+    const documento = await referencia.get();
+
+    if (!documento.exists) return false;
+
+    await referencia.delete();
+
+    return true;
+};
+
+// EXPORTAR RESERVAS A CSV
+export const exportarReservasCSVService = async () => {
+    const snapshot = await db.collection(COLECCION).get();
+
+    const columnas = [
+        "id",
+        "uid_usuario",
+        "email_usuario",
+        "id_coche",
+        "fecha_inicio",
+        "fecha_fin",
+        "estado_aprobacion",
+        "monto_total",
+        "fecha_creacion",
+    ];
+
+    const escapar = (valor) => {
+        const texto = String(valor ?? "");
+        return `"${texto.replace(/"/g, '""')}"`;
+    };
+
+    const filas = snapshot.docs.map((doc) => {
+        const reserva = { id: doc.id, ...doc.data() };
+
+        return columnas
+            .map((columna) => escapar(reserva[columna]))
+            .join(",");
+    });
+
+    return {
+        filename: "reservas.csv",
+        csvContent: [columnas.join(","), ...filas].join("\r\n"),
+    };
 };
