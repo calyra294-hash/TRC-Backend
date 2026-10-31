@@ -2,6 +2,7 @@
 import { db } from "../config/firebase.js";
 
 const COLECCION = "alquiler";
+const COLECCION_RESERVAS = "reservas";
 
 const verificarAdministrador = (usuario) => {
     if (
@@ -92,6 +93,22 @@ export const registrarDevolucionService = async (
             throw error;
         }
 
+        // Buscar la reserva relacionada.
+        const idReserva = alquiler.id_reserva
+            ? String(alquiler.id_reserva)
+            : "";
+
+        const reservaRef = idReserva
+            ? db.collection(COLECCION_RESERVAS).doc(idReserva)
+            : null;
+
+        // Leer la reserva antes de realizar cualquier escritura.
+        let reservaSnapshot = null;
+
+        if (reservaRef) {
+            reservaSnapshot = await transaction.get(reservaRef);
+        }
+
         const fechaActual = new Date().toISOString();
 
         const datosEspecificaciones = {
@@ -106,12 +123,22 @@ export const registrarDevolucionService = async (
                 "No especificado",
         };
 
+        // Finalizar el alquiler.
         transaction.update(referencia, {
             estado: "completado",
             fecha_devolucion: fechaActual,
             fecha_actualizacion: fechaActual,
             especificaciones: datosEspecificaciones,
         });
+
+        // Finalizar también la reserva relacionada.
+        if (reservaRef && reservaSnapshot?.exists) {
+            transaction.update(reservaRef, {
+                estado_aprobacion: "completada",
+                fecha_actualizacion: fechaActual,
+                fecha_finalizacion: fechaActual,
+            });
+        }
 
         return {
             id: documento.id,
@@ -120,6 +147,10 @@ export const registrarDevolucionService = async (
             fecha_devolucion: fechaActual,
             fecha_actualizacion: fechaActual,
             especificaciones: datosEspecificaciones,
+            id_reserva: idReserva,
+            estado_reserva: reservaSnapshot?.exists
+                ? "completada"
+                : null,
         };
     });
 };
