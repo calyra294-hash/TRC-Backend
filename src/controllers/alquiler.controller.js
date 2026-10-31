@@ -51,7 +51,9 @@ const obtenerUsuarioAutenticado = async (req) => {
 
 const verificarAdministrador = (usuario) => {
   if (!["admin", "administrador"].includes(usuario.rol)) {
-    const error = new Error("Solo el administrador puede realizar esta acción.");
+    const error = new Error(
+      "Solo el administrador puede realizar esta acción."
+    );
     error.status = 403;
     throw error;
   }
@@ -150,7 +152,7 @@ export const validarQRAlquiler = async (req, res) => {
   }
 };
 
-// CONFIRMAR ENTREGA MEDIANTE QR
+// CONFIRMAR ENTREGA O DEVOLUCIÓN MEDIANTE EL MISMO QR
 export const confirmarEntregaQR = async (req, res) => {
   try {
     const usuario = await obtenerUsuarioAutenticado(req);
@@ -158,18 +160,42 @@ export const confirmarEntregaQR = async (req, res) => {
 
     const resultado = await validarTokenQRService(req.body.token);
 
-    const alquiler = await registrarEntregaService(
-      resultado.id_alquiler,
-      usuario
-    );
+    let alquiler;
+    let mensaje;
+
+    if (resultado.estado === "pendiente_entrega") {
+      alquiler = await registrarEntregaService(
+        resultado.id_alquiler,
+        usuario
+      );
+
+      mensaje = "Entrega del vehículo confirmada correctamente.";
+    } else if (resultado.estado === "activo") {
+      alquiler = await registrarDevolucionService(
+        resultado.id_alquiler,
+        usuario,
+        req.body.especificaciones || {}
+      );
+
+      mensaje = "Devolución del vehículo registrada correctamente.";
+    } else {
+      const error = new Error(
+        "El estado del alquiler no permite esta operación."
+      );
+      error.status = 400;
+      throw error;
+    }
 
     return res.status(200).json({
       success: true,
-      mensaje: "Entrega del vehículo confirmada correctamente.",
+      mensaje,
+      operacion: alquiler.estado === "activo"
+        ? "entrega"
+        : "devolucion",
       data: alquiler,
     });
   } catch (error) {
-    console.error("Error al confirmar entrega QR:", error);
+    console.error("Error al procesar QR:", error);
 
     return res.status(error.status || 500).json({
       success: false,
@@ -203,7 +229,7 @@ export const registrarEntrega = async (req, res) => {
   }
 };
 
-// REGISTRAR DEVOLUCIÓN
+// REGISTRAR DEVOLUCIÓN TRADICIONAL
 export const registrarDevolucion = async (req, res) => {
   try {
     const usuario = await obtenerUsuarioAutenticado(req);

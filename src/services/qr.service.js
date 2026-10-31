@@ -47,6 +47,7 @@ export const generarTokenQRService = async (idAlquiler, usuario) => {
     }
 
     const alquiler = documento.data();
+    const estado = String(alquiler.estado || "").toLowerCase().trim();
 
     if (alquiler.uid_usuario !== usuario.uid) {
         const error = new Error("No tienes permiso para generar este QR.");
@@ -54,9 +55,9 @@ export const generarTokenQRService = async (idAlquiler, usuario) => {
         throw error;
     }
 
-    if (alquiler.estado !== "pendiente_entrega") {
+    if (!["pendiente_entrega", "activo"].includes(estado)) {
         const error = new Error(
-            "El QR solo está disponible para alquileres pendientes de entrega."
+            "El QR solo está disponible para alquileres pendientes de entrega o activos."
         );
         error.status = 400;
         throw error;
@@ -67,7 +68,7 @@ export const generarTokenQRService = async (idAlquiler, usuario) => {
     const payload = {
         rentalId: String(idAlquiler),
         uid: usuario.uid,
-        action: "entrega",
+        action: "alquiler",
         exp: ahora + DURACION_TOKEN_MS,
         nonce: crypto.randomBytes(16).toString("hex"),
     };
@@ -128,7 +129,7 @@ export const validarTokenQRService = async (token) => {
     }
 
     if (
-        payload.action !== "entrega" ||
+        !["entrega", "alquiler"].includes(payload.action) ||
         !payload.rentalId ||
         !payload.uid ||
         !payload.exp ||
@@ -158,9 +159,13 @@ export const validarTokenQRService = async (token) => {
         throw error;
     }
 
-    if (alquiler.estado !== "pendiente_entrega") {
+    const estado = String(alquiler.estado || "").toLowerCase().trim();
+
+    if (!["pendiente_entrega", "activo"].includes(estado)) {
         const error = new Error(
-            "Este alquiler ya no está pendiente de entrega."
+            estado === "completado"
+                ? "Este alquiler ya fue completado. No se permiten más operaciones."
+                : "Este alquiler no está disponible para entrega o devolución."
         );
         error.status = 400;
         throw error;
@@ -174,7 +179,7 @@ export const validarTokenQRService = async (token) => {
         fecha_inicio: alquiler.fecha_inicio || "",
         fecha_fin: alquiler.fecha_fin || "",
         monto_final: alquiler.monto_final || 0,
-        estado: alquiler.estado,
+        estado,
         vehiculo: alquiler.vehiculo || {},
     };
 };
