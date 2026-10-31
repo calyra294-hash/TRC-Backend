@@ -1,4 +1,3 @@
-
 import { db } from "../config/firebase.js";
 import { supabase } from "../config/supabase.js";
 
@@ -85,6 +84,176 @@ const completarReservaConVehiculo = async (reserva) => {
   };
 };
 
+// Normalizar fechas para comparar solamente el día (YYYY-MM-DD).
+const obtenerFechaDia = (valor) => {
+  if (!valor) return null;
+
+  if (typeof valor === "string") {
+    const coincidencia = valor.match(/^\d{4}-\d{2}-\d{2}/);
+    return coincidencia ? coincidencia[0] : null;
+  }
+
+  if (valor instanceof Date) {
+    if (Number.isNaN(valor.getTime())) return null;
+    return valor.toISOString().slice(0, 10);
+  }
+
+  if (typeof valor.toDate === "function") {
+    return obtenerFechaDia(valor.toDate());
+  }
+
+  return null;
+};
+
+const validarRangoFechas = (fechaInicio, fechaFin) => {
+  const inicio = obtenerFechaDia(fechaInicio);
+  const fin = obtenerFechaDia(fechaFin);
+
+  if (!inicio || !fin) {
+    const error = new Error("Las fechas de la reserva no son válidas.");
+    error.status = 400;
+    throw error;
+  }
+
+  const fechaInicioValida = new Date(`${inicio}T00:00:00.000Z`);
+  const fechaFinValida = new Date(`${fin}T00:00:00.000Z`);
+
+  if (
+    Number.isNaN(fechaInicioValida.getTime()) ||
+    Number.isNaN(fechaFinValida.getTime()) ||
+    fechaInicioValida.toISOString().slice(0, 10) !== inicio ||
+    fechaFinValida.toISOString().slice(0, 10) !== fin ||
+    fin <= inicio
+  ) {
+    const error = new Error(
+      "La fecha de finalización debe ser posterior a la fecha de inicio."
+    );
+    error.status = 400;
+    throw error;
+  }
+
+  return { inicio, fin };
+};
+
+// Comprobar si dos períodos se cruzan.
+// El día de inicio y el día de finalización cuentan como ocupados.
+const fechasSeCruzan = (inicioA, finA, inicioB, finB) => {
+  const inicioExistente = obtenerFechaDia(inicioA);
+  const finExistente = obtenerFechaDia(finA);
+  const inicioNuevo = obtenerFechaDia(inicioB);
+  const finNuevo = obtenerFechaDia(finB);
+
+  if (!inicioExistente || !finExistente || !inicioNuevo || !finNuevo) {
+    return false;
+  }
+
+  return inicioNuevo <= finExistente && finNuevo >= inicioExistente;
+};
+
+const estadoReservaBloquea = (estado) => {
+  const valor = String(estado || "pendiente").trim().toLowerCase();
+
+  return ![
+    "rechazada",
+    "rechazado",
+    "cancelada",
+    "cancelado",
+  ].includes(valor);
+};
+
+const estadoAlquilerBloquea = (estado) => {
+  const valor = String(estado || "").trim().toLowerCase();
+
+  return [
+    "pendiente_entrega",
+    "activo",
+    "alquilado",
+    "en curso",
+    "en_curso",
+    "vigente",
+  ].includes(valor);
+};
+
+// Comprobar disponibilidad dentro de una transacción.
+const verificarDisponibilidadEnTransaccion = async (
+  transaction,
+  idCoche,
+  fechaInicio,
+  fechaFin,
+  idReservaExcluir = null
+) => {
+  const consultaReservas = db
+    .collection(COLECCION)
+    .where("id_coche", "==", Number(idCoche));
+
+  const consultaAlquileres = db
+    .collection(COLECCION_ALQUILER)
+    .where("id_coche", "==", Number(idCoche));
+
+  const [reservasSnapshot, alquileresSnapshot] = await Promise.all([
+    transaction.get(consultaReservas),
+    transaction.get(consultaAlquileres),
+  ]);
+
+  const reservaEnConflicto = reservasSnapshot.docs.find((documento) => {
+    if (documento.id === idReservaExcluir) return false;
+
+    const reserva = documento.data();
+
+    if (!estadoReservaBloquea(reserva.estado_aprobacion)) {
+      return false;
+    }
+
+    return fechasSeCruzan(
+      reserva.fecha_inicio,
+      reserva.fecha_fin,
+      fechaInicio,
+      fechaFin
+    );
+  });
+
+  if (reservaEnConflicto) {
+    const error = new Error(
+      "Este vehículo ya tiene una reserva para las fechas seleccionadas. Elegí otras fechas."
+    );
+    error.status = 409;
+    throw error;
+  }
+
+  const alquilerEnConflicto = alquileresSnapshot.docs.find((documento) => {
+    const alquiler = documento.data();
+
+    if (
+      idReservaExcluir &&
+      (
+        String(alquiler.id_reserva || "") === String(idReservaExcluir) ||
+        documento.id === `alquiler_${idReservaExcluir}`
+      )
+    ) {
+      return false;
+    }
+
+    if (!estadoAlquilerBloquea(alquiler.estado)) {
+      return false;
+    }
+
+    return fechasSeCruzan(
+      alquiler.fecha_inicio,
+      alquiler.fecha_fin,
+      fechaInicio,
+      fechaFin
+    );
+  });
+
+  if (alquilerEnConflicto) {
+    const error = new Error(
+      "Este vehículo está ocupado por un alquiler durante las fechas seleccionadas. Elegí otras fechas."
+    );
+    error.status = 409;
+    throw error;
+  }
+};
+
 // CREAR RESERVA EN FIRESTORE
 export const crearReservaService = async (datos, usuario) => {
   if (!usuario || !usuario.uid) {
@@ -98,29 +267,38 @@ export const crearReservaService = async (datos, usuario) => {
     throw new Error("El vehículo seleccionado no es válido.");
   }
 
-  if (
-    !datos.fecha_inicio ||
-    !datos.fecha_fin ||
-    !Number.isFinite(montoTotal) ||
-    montoTotal < 0
-  ) {
-    throw new Error("Los datos de la reserva no son válidos.");
+  if (!Number.isFinite(montoTotal) || montoTotal < 0) {
+    throw new Error("El monto de la reserva no es válido.");
   }
+
+  const { inicio, fin } = validarRangoFechas(
+    datos.fecha_inicio,
+    datos.fecha_fin
+  );
 
   const reserva = {
     uid_usuario: usuario.uid,
     email_usuario: usuario.email || "",
     id_coche: idCoche,
-    fecha_inicio: datos.fecha_inicio,
-    fecha_fin: datos.fecha_fin,
+    fecha_inicio: inicio,
+    fecha_fin: fin,
     estado_aprobacion: "pendiente",
     monto_total: montoTotal,
     fecha_creacion: new Date().toISOString(),
   };
 
-  const referencia = await db
-    .collection(COLECCION)
-    .add(reserva);
+  const referencia = db.collection(COLECCION).doc();
+
+  await db.runTransaction(async (transaction) => {
+    await verificarDisponibilidadEnTransaccion(
+      transaction,
+      idCoche,
+      inicio,
+      fin
+    );
+
+    transaction.create(referencia, reserva);
+  });
 
   return completarReservaConVehiculo({
     id: referencia.id,
@@ -135,6 +313,7 @@ export const obtenerReservasService = async (usuario) => {
   }
 
   const perfil = await obtenerPerfil(usuario.uid);
+
   let consulta = db.collection(COLECCION);
 
   if (!esAdministrador(perfil.rol)) {
@@ -234,7 +413,6 @@ export const actualizarEstadoReservaService = async (
 
   const datosReserva = documento.data();
 
-  // Si se aprueba, primero verificamos el vehículo.
   let coche = null;
 
   if (estadoNuevo === "aprobada") {
@@ -260,7 +438,6 @@ export const actualizarEstadoReservaService = async (
 
     const datosActuales = reservaActual.data();
 
-    // Evitar crear más de un alquiler para la misma reserva.
     if (
       estadoNuevo === "aprobada" &&
       datosActuales.id_alquiler
@@ -269,9 +446,7 @@ export const actualizarEstadoReservaService = async (
         .collection(COLECCION_ALQUILER)
         .doc(String(datosActuales.id_alquiler));
 
-      const alquilerSnapshot = await transaction.get(
-        alquilerExistente
-      );
+      const alquilerSnapshot = await transaction.get(alquilerExistente);
 
       if (alquilerSnapshot.exists) {
         idAlquilerCreado = datosActuales.id_alquiler;
@@ -288,7 +463,19 @@ export const actualizarEstadoReservaService = async (
     const fechaActual = new Date().toISOString();
 
     if (estadoNuevo === "aprobada") {
-      // Un documento determinístico evita duplicados.
+      const { inicio, fin } = validarRangoFechas(
+        datosActuales.fecha_inicio,
+        datosActuales.fecha_fin
+      );
+
+      await verificarDisponibilidadEnTransaccion(
+        transaction,
+        Number(datosActuales.id_coche),
+        inicio,
+        fin,
+        reservaRef.id
+      );
+
       const alquilerRef = db
         .collection(COLECCION_ALQUILER)
         .doc(`alquiler_${reservaRef.id}`);
@@ -335,7 +522,6 @@ export const actualizarEstadoReservaService = async (
         fecha_actualizacion: fechaActual,
       });
     } else {
-      // No permitir cancelar o rechazar una reserva que ya generó alquiler.
       if (datosActuales.id_alquiler) {
         const error = new Error(
           "Esta reserva ya tiene un alquiler generado. No se puede cambiar su estado desde aquí."

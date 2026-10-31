@@ -1,4 +1,3 @@
-
 import { auth, db } from "../config/firebase.js";
 import {
   obtenerReservasService,
@@ -8,6 +7,9 @@ import {
   actualizarEstadoReservaService,
   eliminarReservaService,
 } from "../services/reserva.service.js";
+import {
+  obtenerDisponibilidadVehiculosService,
+} from "../services/disponibilidad.service.js";
 
 // VALIDAR TOKEN Y OBTENER USUARIO DE FIREBASE
 const obtenerUsuarioAutenticado = async (req) => {
@@ -242,6 +244,29 @@ export const exportarReservasCSV = async (req, res) => {
     return res.status(500).json({
       success: false,
       mensaje: "Error al generar el archivo CSV de reservas.",
+      error: error.message,
+    });
+  }
+};
+
+// OBTENER DISPONIBILIDAD DE TODOS LOS VEHÍCULOS
+export const obtenerDisponibilidadVehiculos = async (req, res) => {
+  try {
+    await obtenerUsuarioAutenticado(req);
+
+    const disponibilidad =
+      await obtenerDisponibilidadVehiculosService();
+
+    return res.status(200).json({
+      success: true,
+      data: disponibilidad,
+    });
+  } catch (error) {
+    console.error("Error al obtener disponibilidad:", error);
+
+    return res.status(error.status || 500).json({
+      success: false,
+      mensaje: "No se pudo obtener la disponibilidad de los vehículos.",
       error: error.message,
     });
   }
