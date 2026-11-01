@@ -1,9 +1,11 @@
+
 import { Router } from "express";
 
 import {
     registrarResena,
     obtenerResenasVehiculo,
     obtenerMisResenas,
+    obtenerTodasResenasAdmin,
     exportarResenasCSV,
 } from "../controllers/resena.controller.js";
 
@@ -14,6 +16,9 @@ router.post("/", registrarResena);
 
 // CONSULTAR RESEÑAS DEL CLIENTE
 router.get("/mis-resenas", obtenerMisResenas);
+
+// CONSULTAR TODAS LAS RESEÑAS PARA ADMINISTRADOR
+router.get("/admin/todas", obtenerTodasResenasAdmin);
 
 // CONSULTAR RESEÑAS DE UN VEHÍCULO
 router.get("/vehiculo/:id", obtenerResenasVehiculo);

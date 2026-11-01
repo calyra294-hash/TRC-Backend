@@ -1,8 +1,32 @@
+
 import { db } from "../config/firebase.js";
+import { supabase } from "../config/supabase.js";
 import { formatearFecha } from "../utils/dateFormatter.js";
 
 const COLECCION = "resenas";
 const COLECCION_ALQUILER = "alquiler";
+
+const obtenerTiempo = (fecha) => {
+  if (!fecha) return 0;
+
+  if (fecha.toDate) {
+    return fecha.toDate().getTime();
+  }
+
+  return new Date(fecha).getTime() || 0;
+};
+
+const obtenerFechaISO = (fecha) => {
+  if (!fecha) return null;
+
+  const fechaDate = fecha.toDate
+    ? fecha.toDate()
+    : new Date(fecha);
+
+  return Number.isNaN(fechaDate.getTime())
+    ? null
+    : fechaDate.toISOString();
+};
 
 // REGISTRAR RESEÑA
 export const registrarResenaService = async (datos, usuario) => {
@@ -52,7 +76,6 @@ export const registrarResenaService = async (datos, usuario) => {
 
     const alquiler = alquilerSnapshot.data();
 
-    // Verificar que el alquiler pertenezca al cliente autenticado.
     if (String(alquiler.uid_usuario || "") !== String(usuario.uid)) {
       const error = new Error(
         "No tienes permiso para calificar este alquiler."
@@ -61,7 +84,6 @@ export const registrarResenaService = async (datos, usuario) => {
       throw error;
     }
 
-    // Solo se pueden calificar alquileres completados.
     if (String(alquiler.estado || "").toLowerCase() !== "completado") {
       const error = new Error(
         "Solo puedes calificar vehículos de alquileres completados."
@@ -80,7 +102,6 @@ export const registrarResenaService = async (datos, usuario) => {
       throw error;
     }
 
-    // Evitar que un alquiler tenga más de una reseña.
     const resenasExistentes = db
       .collection(COLECCION)
       .where("id_alquiler", "==", idAlquiler)
@@ -96,15 +117,13 @@ export const registrarResenaService = async (datos, usuario) => {
       throw error;
     }
 
-    const fechaActual = new Date();
-
     const nuevaResena = {
       id_alquiler: idAlquiler,
       id_usuario: usuario.uid,
       id_vehiculo: idVehiculo,
       calificacion,
       comentario,
-      fecha_creacion: fechaActual,
+      fecha_creacion: new Date(),
     };
 
     transaction.set(nuevaResenaRef, nuevaResena);
@@ -128,29 +147,19 @@ export const obtenerResenasVehiculoService = async (idVehiculo) => {
     ...doc.data(),
   }));
 
-  resenas.sort((a, b) => {
-    const fechaA = a.fecha_creacion?.toDate
-      ? a.fecha_creacion.toDate().getTime()
-      : new Date(a.fecha_creacion || 0).getTime();
-
-    const fechaB = b.fecha_creacion?.toDate
-      ? b.fecha_creacion.toDate().getTime()
-      : new Date(b.fecha_creacion || 0).getTime();
-
-    return fechaB - fechaA;
-  });
+  resenas.sort((a, b) =>
+    obtenerTiempo(b.fecha_creacion) - obtenerTiempo(a.fecha_creacion)
+  );
 
   const total = resenas.length;
 
   const promedio = total > 0
-    ? Number(
-      (
-        resenas.reduce(
-          (suma, resena) => suma + Number(resena.calificacion || 0),
-          0
-        ) / total
-      ).toFixed(1)
-    )
+    ? Number((
+      resenas.reduce(
+        (suma, resena) => suma + Number(resena.calificacion || 0),
+        0
+      ) / total
+    ).toFixed(1))
     : 0;
 
   return {
@@ -172,17 +181,149 @@ export const obtenerMisResenasService = async (uid) => {
       id: doc.id,
       ...doc.data(),
     }))
-    .sort((a, b) => {
-      const fechaA = a.fecha_creacion?.toDate
-        ? a.fecha_creacion.toDate().getTime()
-        : new Date(a.fecha_creacion || 0).getTime();
+    .sort((a, b) =>
+      obtenerTiempo(b.fecha_creacion) - obtenerTiempo(a.fecha_creacion)
+    );
+};
 
-      const fechaB = b.fecha_creacion?.toDate
-        ? b.fecha_creacion.toDate().getTime()
-        : new Date(b.fecha_creacion || 0).getTime();
+// OBTENER TODAS LAS RESEÑAS PARA EL ADMINISTRADOR
+export const obtenerTodasResenasAdminService = async () => {
+  const snapshot = await db.collection(COLECCION).get();
 
-      return fechaB - fechaA;
+  const resenasOriginales = snapshot.docs.map((doc) => ({
+    id: doc.id,
+    ...doc.data(),
+  }));
+
+  resenasOriginales.sort((a, b) =>
+    obtenerTiempo(b.fecha_creacion) - obtenerTiempo(a.fecha_creacion)
+  );
+
+  const idsUsuarios = [
+    ...new Set(
+      resenasOriginales
+        .map((resena) => String(resena.id_usuario || "").trim())
+        .filter(Boolean)
+    ),
+  ];
+
+  const idsVehiculos = [
+    ...new Set(
+      resenasOriginales
+        .map((resena) => String(resena.id_vehiculo || "").trim())
+        .filter(Boolean)
+    ),
+  ];
+
+  // Consultar perfiles de clientes en Firestore.
+  const referenciasUsuarios = idsUsuarios.map((uid) =>
+    db.collection("usuario").doc(uid)
+  );
+
+  const snapshotsUsuarios = referenciasUsuarios.length > 0
+    ? await db.getAll(...referenciasUsuarios)
+    : [];
+
+  const mapaUsuarios = new Map();
+
+  snapshotsUsuarios.forEach((doc) => {
+    if (!doc.exists) return;
+
+    const usuario = doc.data() || {};
+
+    const nombre = [
+      usuario.nombre1,
+      usuario.nombre2,
+      usuario.apellido1,
+      usuario.apellido2,
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .trim();
+
+    mapaUsuarios.set(doc.id, {
+      nombre: nombre || "Cliente sin nombre",
+      email: usuario.email || "",
     });
+  });
+
+  // Consultar los vehículos en Supabase.
+  const mapaVehiculos = new Map();
+
+  if (idsVehiculos.length > 0) {
+    const { data: vehiculos, error } = await supabase
+      .from("coche")
+      .select("id_coche, marca, modelo")
+      .in("id_coche", idsVehiculos);
+
+    if (error) {
+      console.error("Error al consultar vehículos de las reseñas:", error);
+      throw new Error("No se pudieron consultar los vehículos de las reseñas.");
+    }
+
+    (vehiculos || []).forEach((vehiculo) => {
+      mapaVehiculos.set(String(vehiculo.id_coche), {
+        id_vehiculo: String(vehiculo.id_coche),
+        marca: vehiculo.marca || "",
+        modelo: vehiculo.modelo || "",
+        nombre: `${vehiculo.marca || ""} ${vehiculo.modelo || ""}`.trim(),
+      });
+    });
+  }
+
+  const resenas = resenasOriginales.map((resena) => {
+    const uid = String(resena.id_usuario || "");
+    const idVehiculo = String(resena.id_vehiculo || "");
+
+    return {
+      ...resena,
+      fecha_creacion: obtenerFechaISO(resena.fecha_creacion),
+      cliente: mapaUsuarios.get(uid) || {
+        nombre: "Cliente no encontrado",
+        email: "",
+      },
+      vehiculo: mapaVehiculos.get(idVehiculo) || {
+        id_vehiculo: idVehiculo,
+        marca: "",
+        modelo: "",
+        nombre: "Vehículo no encontrado",
+      },
+    };
+  });
+
+  const total = resenas.length;
+
+  const promedio = total > 0
+    ? Number((
+      resenas.reduce(
+        (suma, resena) => suma + Number(resena.calificacion || 0),
+        0
+      ) / total
+    ).toFixed(1))
+    : 0;
+
+  const distribucion = {
+    1: 0,
+    2: 0,
+    3: 0,
+    4: 0,
+    5: 0,
+  };
+
+  resenas.forEach((resena) => {
+    const estrellas = Number(resena.calificacion);
+
+    if (Number.isInteger(estrellas) && distribucion[estrellas] !== undefined) {
+      distribucion[estrellas]++;
+    }
+  });
+
+  return {
+    total,
+    promedio,
+    distribucion,
+    resenas,
+  };
 };
 
 // EXPORTAR RESEÑAS A CSV

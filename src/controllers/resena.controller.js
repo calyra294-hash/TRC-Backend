@@ -1,9 +1,11 @@
+
 import { auth, db } from "../config/firebase.js";
 
 import {
   registrarResenaService,
   obtenerResenasVehiculoService,
   obtenerMisResenasService,
+  obtenerTodasResenasAdminService,
   exportarResenasCSVService,
 } from "../services/resenas.service.js";
 
@@ -38,6 +40,17 @@ const obtenerUsuarioAutenticado = async (req) => {
     email: usuarioToken.email || perfil.email || "",
     rol: String(perfil.rol || "").trim().toLowerCase(),
   };
+};
+
+// VALIDAR ADMINISTRADOR
+const verificarAdministrador = (usuario) => {
+  if (!["admin", "administrador"].includes(usuario.rol)) {
+    const error = new Error(
+      "No tienes permisos para consultar todas las reseñas."
+    );
+    error.status = 403;
+    throw error;
+  }
 };
 
 // REGISTRAR RESEÑA
@@ -119,6 +132,30 @@ export const obtenerMisResenas = async (req, res) => {
     return res.status(error.status || 500).json({
       success: false,
       mensaje: error.message || "No se pudieron obtener tus reseñas.",
+    });
+  }
+};
+
+// OBTENER TODAS LAS RESEÑAS PARA EL ADMINISTRADOR
+export const obtenerTodasResenasAdmin = async (req, res) => {
+  try {
+    const usuario = await obtenerUsuarioAutenticado(req);
+
+    verificarAdministrador(usuario);
+
+    const resultado = await obtenerTodasResenasAdminService();
+
+    return res.status(200).json({
+      success: true,
+      mensaje: "Reseñas obtenidas correctamente.",
+      data: resultado,
+    });
+  } catch (error) {
+    console.error("Error al obtener todas las reseñas:", error);
+
+    return res.status(error.status || 500).json({
+      success: false,
+      mensaje: error.message || "No se pudieron obtener las reseñas.",
     });
   }
 };
