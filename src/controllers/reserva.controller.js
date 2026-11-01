@@ -1,4 +1,6 @@
+
 import { auth, db } from "../config/firebase.js";
+
 import {
   obtenerReservasService,
   exportarReservasCSVService,
@@ -7,9 +9,14 @@ import {
   actualizarEstadoReservaService,
   eliminarReservaService,
 } from "../services/reserva.service.js";
+
 import {
   obtenerDisponibilidadVehiculosService,
 } from "../services/disponibilidad.service.js";
+
+import {
+  crearNotificacionService,
+} from "../services/notificaciones.service.js";
 
 // VALIDAR TOKEN Y OBTENER USUARIO DE FIREBASE
 const obtenerUsuarioAutenticado = async (req) => {
@@ -38,6 +45,70 @@ const obtenerUsuarioAutenticado = async (req) => {
     email: usuarioToken.email || perfil.email || "",
     rol: String(perfil.rol || "").trim().toLowerCase(),
   };
+};
+
+// NOTIFICAR A TODOS LOS ADMINISTRADORES
+const notificarAdministradoresReserva = async (reserva) => {
+  try {
+    const usuariosSnapshot = await db.collection("usuario").get();
+
+    const administradores = usuariosSnapshot.docs.filter((documento) => {
+      const perfil = documento.data() || {};
+      const rol = String(perfil.rol || "").trim().toLowerCase();
+
+      return ["admin", "administrador"].includes(rol);
+    });
+
+    await Promise.all(
+      administradores.map((documento) =>
+        crearNotificacionService({
+          id_usuario: documento.id,
+          titulo: "Nueva solicitud de reserva",
+          mensaje: `Un cliente ha solicitado reservar el vehículo ${reserva.coche?.nombre || "seleccionado"}.`,
+          tipo: "reserva_nueva",
+          id_reserva: reserva.id,
+          clave_unica: `reserva_nueva_${reserva.id}_${documento.id}`,
+        })
+      )
+    );
+  } catch (error) {
+    console.error("No se pudieron enviar las notificaciones a los administradores:", error);
+  }
+};
+
+// NOTIFICAR AL CLIENTE SOBRE EL ESTADO DE SU RESERVA
+const notificarEstadoReserva = async (reserva, estado) => {
+  try {
+    if (!reserva?.uid_usuario) return;
+
+    let titulo = "";
+    let mensaje = "";
+
+    if (estado === "aprobada") {
+      titulo = "¡Tu reserva fue aprobada!";
+      mensaje = `Tu reserva del vehículo ${reserva.coche?.nombre || "seleccionado"} fue aprobada. Ya puedes consultar los detalles de tu alquiler.`;
+    } else if (estado === "rechazada") {
+      titulo = "Reserva rechazada";
+      mensaje = `Tu solicitud de reserva del vehículo ${reserva.coche?.nombre || "seleccionado"} fue rechazada.`;
+    } else if (estado === "cancelada") {
+      titulo = "Reserva cancelada";
+      mensaje = `Tu reserva del vehículo ${reserva.coche?.nombre || "seleccionado"} fue cancelada.`;
+    } else {
+      return;
+    }
+
+    await crearNotificacionService({
+      id_usuario: reserva.uid_usuario,
+      titulo,
+      mensaje,
+      tipo: `reserva_${estado}`,
+      id_reserva: reserva.id,
+      id_alquiler: reserva.id_alquiler || null,
+      clave_unica: `reserva_estado_${reserva.id}_${estado}`,
+    });
+  } catch (error) {
+    console.error("No se pudo notificar al cliente:", error);
+  }
 };
 
 // OBTENER RESERVAS
@@ -139,6 +210,9 @@ export const crearReserva = async (req, res) => {
       usuario
     );
 
+    // NOTIFICAR A LOS ADMINISTRADORES
+    await notificarAdministradoresReserva(reserva);
+
     return res.status(201).json({
       success: true,
       mensaje: "Reserva creada correctamente en Firebase.",
@@ -180,6 +254,12 @@ export const actualizarEstadoReserva = async (req, res) => {
         mensaje: "No se encontró la reserva.",
       });
     }
+
+    // NOTIFICAR AL CLIENTE SOBRE EL CAMBIO DE ESTADO
+    await notificarEstadoReserva(
+      reserva,
+      String(estado).trim().toLowerCase()
+    );
 
     return res.status(200).json({
       success: true,
