@@ -7,6 +7,7 @@ import {
   crearReservaService,
   obtenerReservaPorIdService,
   actualizarEstadoReservaService,
+  editarReservaService,
   eliminarReservaService,
 } from "../services/reserva.service.js";
 
@@ -72,7 +73,10 @@ const notificarAdministradoresReserva = async (reserva) => {
       )
     );
   } catch (error) {
-    console.error("No se pudieron enviar las notificaciones a los administradores:", error);
+    console.error(
+      "No se pudieron enviar las notificaciones a los administradores:",
+      error
+    );
   }
 };
 
@@ -224,6 +228,57 @@ export const crearReserva = async (req, res) => {
     return res.status(error.status || 500).json({
       success: false,
       mensaje: "No se pudo crear la reserva.",
+      error: error.message,
+    });
+  }
+};
+
+// EDITAR RESERVA PENDIENTE
+export const editarReserva = async (req, res) => {
+  try {
+    const usuario = await obtenerUsuarioAutenticado(req);
+
+    if (["admin", "administrador"].includes(usuario.rol)) {
+      return res.status(403).json({
+        success: false,
+        mensaje: "La edición de reservas solo está disponible para clientes.",
+      });
+    }
+
+    const { id_coche, fecha_inicio, fecha_fin } = req.body;
+
+    if (
+      id_coche == null ||
+      !fecha_inicio ||
+      !fecha_fin
+    ) {
+      return res.status(400).json({
+        success: false,
+        mensaje: "Debes indicar el vehículo y las fechas de la reserva.",
+      });
+    }
+
+    const reserva = await editarReservaService(
+      req.params.id,
+      {
+        id_coche,
+        fecha_inicio,
+        fecha_fin,
+      },
+      usuario
+    );
+
+    return res.status(200).json({
+      success: true,
+      mensaje: "Reserva actualizada correctamente.",
+      data: reserva,
+    });
+  } catch (error) {
+    console.error("Error al editar reserva:", error);
+
+    return res.status(error.status || 500).json({
+      success: false,
+      mensaje: "No se pudo editar la reserva.",
       error: error.message,
     });
   }

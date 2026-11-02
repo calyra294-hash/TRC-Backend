@@ -1,3 +1,4 @@
+
 import { db } from "../config/firebase.js";
 import { supabase } from "../config/supabase.js";
 
@@ -313,7 +314,6 @@ export const obtenerReservasService = async (usuario) => {
   }
 
   const perfil = await obtenerPerfil(usuario.uid);
-
   let consulta = db.collection(COLECCION);
 
   if (!esAdministrador(perfil.rol)) {
@@ -412,7 +412,6 @@ export const actualizarEstadoReservaService = async (
   }
 
   const datosReserva = documento.data();
-
   let coche = null;
 
   if (estadoNuevo === "aprobada") {
@@ -545,41 +544,156 @@ export const actualizarEstadoReservaService = async (
   });
 };
 
-// ELIMINAR RESERVA
+// EDITAR RESERVA PENDIENTE
+export const editarReservaService = async (id, datos, usuario) => {
+  if (!usuario || !usuario.uid) {
+    const error = new Error("No se pudo identificar al usuario.");
+    error.status = 401;
+    throw error;
+  }
+
+  const idCoche = Number(datos.id_coche);
+
+  if (!Number.isFinite(idCoche) || idCoche <= 0) {
+    const error = new Error("El vehículo seleccionado no es válido.");
+    error.status = 400;
+    throw error;
+  }
+
+  const { inicio, fin } = validarRangoFechas(
+    datos.fecha_inicio,
+    datos.fecha_fin
+  );
+
+  const coche = await obtenerVehiculo(idCoche);
+
+  if (!coche) {
+    const error = new Error("No se encontró el vehículo seleccionado.");
+    error.status = 404;
+    throw error;
+  }
+
+  const fechaInicio = new Date(`${inicio}T00:00:00.000Z`);
+  const fechaFin = new Date(`${fin}T00:00:00.000Z`);
+
+  const diasAlquiler = Math.round(
+    (fechaFin.getTime() - fechaInicio.getTime()) / 86400000
+  );
+
+  const montoTotal = Number(
+    (Number(coche.valor_dia) * diasAlquiler).toFixed(2)
+  );
+
+  if (!Number.isFinite(montoTotal) || montoTotal < 0) {
+    const error = new Error("No se pudo calcular el monto de la reserva.");
+    error.status = 400;
+    throw error;
+  }
+
+  const reservaRef = db.collection(COLECCION).doc(String(id));
+
+  await db.runTransaction(async (transaction) => {
+    const documento = await transaction.get(reservaRef);
+
+    if (!documento.exists) {
+      const error = new Error("No se encontró la reserva.");
+      error.status = 404;
+      throw error;
+    }
+
+    const reserva = documento.data();
+
+    if (reserva.uid_usuario !== usuario.uid) {
+      const error = new Error(
+        "No tenés permiso para modificar esta reserva."
+      );
+      error.status = 403;
+      throw error;
+    }
+
+    if (
+      String(reserva.estado_aprobacion || "").toLowerCase() !== "pendiente" ||
+      reserva.id_alquiler
+    ) {
+      const error = new Error(
+        "Solo podés editar reservas que estén pendientes."
+      );
+      error.status = 400;
+      throw error;
+    }
+
+    await verificarDisponibilidadEnTransaccion(
+      transaction,
+      idCoche,
+      inicio,
+      fin,
+      reservaRef.id
+    );
+
+    transaction.update(reservaRef, {
+      id_coche: idCoche,
+      fecha_inicio: inicio,
+      fecha_fin: fin,
+      monto_total: montoTotal,
+      fecha_actualizacion: new Date().toISOString(),
+    });
+  });
+
+  const actualizado = await reservaRef.get();
+
+  return completarReservaConVehiculo({
+    id: actualizado.id,
+    ...actualizado.data(),
+  });
+};
+
+// ELIMINAR RESERVA PENDIENTE
 export const eliminarReservaService = async (id, usuario) => {
   if (!usuario || !usuario.uid) {
-    throw new Error("No se pudo identificar al usuario.");
+    const error = new Error("No se pudo identificar al usuario.");
+    error.status = 401;
+    throw error;
   }
 
   const perfil = await obtenerPerfil(usuario.uid);
-
-  if (!esAdministrador(perfil.rol)) {
-    const error = new Error(
-      "Solo el administrador puede eliminar reservas."
-    );
-    error.status = 403;
-    throw error;
-  }
+  const administrador = esAdministrador(perfil.rol);
 
   const referencia = db
     .collection(COLECCION)
     .doc(String(id));
 
-  const documento = await referencia.get();
+  await db.runTransaction(async (transaction) => {
+    const documento = await transaction.get(referencia);
 
-  if (!documento.exists) {
-    return false;
-  }
+    if (!documento.exists) {
+      const error = new Error("No se encontró la reserva.");
+      error.status = 404;
+      throw error;
+    }
 
-  if (documento.data().id_alquiler) {
-    const error = new Error(
-      "No se puede eliminar una reserva que ya tiene un alquiler asociado."
-    );
-    error.status = 400;
-    throw error;
-  }
+    const reserva = documento.data();
 
-  await referencia.delete();
+    if (!administrador && reserva.uid_usuario !== usuario.uid) {
+      const error = new Error(
+        "No tenés permiso para eliminar esta reserva."
+      );
+      error.status = 403;
+      throw error;
+    }
+
+    if (
+      String(reserva.estado_aprobacion || "").toLowerCase() !== "pendiente" ||
+      reserva.id_alquiler
+    ) {
+      const error = new Error(
+        "Solo se pueden eliminar reservas que estén pendientes."
+      );
+      error.status = 400;
+      throw error;
+    }
+
+    transaction.delete(referencia);
+  });
 
   return true;
 };
