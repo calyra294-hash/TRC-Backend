@@ -28,6 +28,25 @@ const obtenerFechaISO = (fecha) => {
     : fechaDate.toISOString();
 };
 
+const obtenerNombreUsuario = (usuario = {}) => {
+  const nombreCompleto = [
+    usuario.nombre1,
+    usuario.nombre2,
+    usuario.apellido1,
+    usuario.apellido2,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+
+  return (
+    usuario.nombre ||
+    usuario.nombre_completo ||
+    nombreCompleto ||
+    "Cliente"
+  );
+};
+
 // REGISTRAR RESEÑA
 export const registrarResenaService = async (datos, usuario) => {
   const idAlquiler = String(datos.id_alquiler || "").trim();
@@ -40,11 +59,7 @@ export const registrarResenaService = async (datos, usuario) => {
     throw error;
   }
 
-  if (
-    !Number.isInteger(calificacion) ||
-    calificacion < 1 ||
-    calificacion > 5
-  ) {
+  if (!Number.isInteger(calificacion) || calificacion < 1 || calificacion > 5) {
     const error = new Error("La calificación debe estar entre 1 y 5 estrellas.");
     error.status = 400;
     throw error;
@@ -77,17 +92,13 @@ export const registrarResenaService = async (datos, usuario) => {
     const alquiler = alquilerSnapshot.data();
 
     if (String(alquiler.uid_usuario || "") !== String(usuario.uid)) {
-      const error = new Error(
-        "No tienes permiso para calificar este alquiler."
-      );
+      const error = new Error("No tienes permiso para calificar este alquiler.");
       error.status = 403;
       throw error;
     }
 
     if (String(alquiler.estado || "").toLowerCase() !== "completado") {
-      const error = new Error(
-        "Solo puedes calificar vehículos de alquileres completados."
-      );
+      const error = new Error("Solo puedes calificar vehículos de alquileres completados.");
       error.status = 400;
       throw error;
     }
@@ -95,9 +106,7 @@ export const registrarResenaService = async (datos, usuario) => {
     const idVehiculo = String(alquiler.id_coche || "").trim();
 
     if (!idVehiculo) {
-      const error = new Error(
-        "No se encontró el vehículo relacionado con el alquiler."
-      );
+      const error = new Error("No se encontró el vehículo relacionado con el alquiler.");
       error.status = 400;
       throw error;
     }
@@ -110,9 +119,7 @@ export const registrarResenaService = async (datos, usuario) => {
     const resenasSnapshot = await transaction.get(resenasExistentes);
 
     if (!resenasSnapshot.empty) {
-      const error = new Error(
-        "Ya has publicado una reseña para este alquiler."
-      );
+      const error = new Error("Ya has publicado una reseña para este alquiler.");
       error.status = 409;
       throw error;
     }
@@ -142,14 +149,46 @@ export const obtenerResenasVehiculoService = async (idVehiculo) => {
     .where("id_vehiculo", "==", String(idVehiculo))
     .get();
 
-  const resenas = snapshot.docs.map((doc) => ({
+  const resenasOriginales = snapshot.docs.map((doc) => ({
     id: doc.id,
     ...doc.data(),
   }));
 
-  resenas.sort((a, b) =>
+  resenasOriginales.sort((a, b) =>
     obtenerTiempo(b.fecha_creacion) - obtenerTiempo(a.fecha_creacion)
   );
+
+  const idsUsuarios = [
+    ...new Set(
+      resenasOriginales
+        .map((resena) => String(resena.id_usuario || "").trim())
+        .filter(Boolean)
+    ),
+  ];
+
+  const referenciasUsuarios = idsUsuarios.map((uid) =>
+    db.collection("usuario").doc(uid)
+  );
+
+  const snapshotsUsuarios = referenciasUsuarios.length
+    ? await db.getAll(...referenciasUsuarios)
+    : [];
+
+  const mapaUsuarios = new Map();
+
+  snapshotsUsuarios.forEach((doc) => {
+    if (doc.exists) {
+      mapaUsuarios.set(doc.id, obtenerNombreUsuario(doc.data()));
+    }
+  });
+
+  const resenas = resenasOriginales.map((resena) => ({
+    ...resena,
+    fecha_creacion: obtenerFechaISO(resena.fecha_creacion),
+    cliente: {
+      nombre: mapaUsuarios.get(String(resena.id_usuario || "")) || "Cliente",
+    },
+  }));
 
   const total = resenas.length;
 
@@ -215,12 +254,11 @@ export const obtenerTodasResenasAdminService = async () => {
     ),
   ];
 
-  // Consultar perfiles de clientes en Firestore.
   const referenciasUsuarios = idsUsuarios.map((uid) =>
     db.collection("usuario").doc(uid)
   );
 
-  const snapshotsUsuarios = referenciasUsuarios.length > 0
+  const snapshotsUsuarios = referenciasUsuarios.length
     ? await db.getAll(...referenciasUsuarios)
     : [];
 
@@ -231,23 +269,12 @@ export const obtenerTodasResenasAdminService = async () => {
 
     const usuario = doc.data() || {};
 
-    const nombre = [
-      usuario.nombre1,
-      usuario.nombre2,
-      usuario.apellido1,
-      usuario.apellido2,
-    ]
-      .filter(Boolean)
-      .join(" ")
-      .trim();
-
     mapaUsuarios.set(doc.id, {
-      nombre: nombre || "Cliente sin nombre",
+      nombre: obtenerNombreUsuario(usuario),
       email: usuario.email || "",
     });
   });
 
-  // Consultar los vehículos en Supabase.
   const mapaVehiculos = new Map();
 
   if (idsVehiculos.length > 0) {
